@@ -8,7 +8,9 @@ import {
   FaFont,
   FaFolder,
   FaBox,
-  FaStore
+  FaStore,
+  FaShoppingCart,
+  FaReceipt
 } from "react-icons/fa";
 
 const AdminDashboard = lazy(() => import("../pages/AdminDashboard"));
@@ -19,6 +21,7 @@ const OfferTexts = lazy(() => import("../pages/OfferTexts"));
 const Categories = lazy(() => import("../pages/Categories"));
 const Products = lazy(() => import("../pages/Products"));
 const Stores = lazy(() => import("../pages/Stores"));
+const Orders = lazy(() => import("../pages/Orders"));
 
 const routes = [
   {
@@ -26,6 +29,12 @@ const routes = [
     component: AdminDashboard,
     name: "Dashboard",
     icon: FaTachometerAlt,
+  },
+  {
+    path: "/orders",
+    component: Orders,
+    name: "Orders",
+    icon: FaShoppingCart,
   },
   {
     path: "/users",

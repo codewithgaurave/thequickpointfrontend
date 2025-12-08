@@ -30,7 +30,12 @@ import {
   FaCopy,
   FaClipboard,
   FaIdCard,
-  FaRegBuilding
+  FaRegBuilding,
+  FaBox,
+  FaShoppingCart,
+  FaList,
+  FaEye as FaEyeIcon,
+  FaExternalLinkAlt
 } from "react-icons/fa";
 import { useTheme } from "../context/ThemeContext";
 import {
@@ -39,6 +44,7 @@ import {
   updateStoreAPI,
   updateStoreStatusAPI,
   deleteStoreAPI,
+  getStoreProductsAPI
 } from "../apis/storeApi";
 
 const MySwal = withReactContent(Swal);
@@ -54,20 +60,83 @@ export default function Stores() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [createImagePreview, setCreateImagePreview] = useState("");
   const [editImagePreview, setEditImagePreview] = useState("");
+  const [storeProducts, setStoreProducts] = useState({}); // storeId -> products data
 
   // Fetch all stores
   const fetchStores = async () => {
     try {
       setLoading(true);
       const res = await getAllStoresAPI();
-      setStores(res?.data?.stores || []);
+      const storesData = res?.data?.stores || [];
+      setStores(storesData);
+      
+      // Fetch products for each store
+      await fetchStoreProductsData(storesData);
+      
       setLastUpdated(new Date());
     } catch (err) {
       console.error("Error fetching stores:", err);
       toast.error("Failed to load stores");
       setStores([]);
+      setStoreProducts({});
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch products for each store
+  const fetchStoreProductsData = async (storesList) => {
+    const productsMap = {};
+    
+    for (const store of storesList) {
+      try {
+        const response = await getStoreProductsAPI(store._id);
+        const storeData = response?.data;
+        
+        if (storeData && storeData.products) {
+          productsMap[store._id] = {
+            count: storeData.products.length,
+            products: storeData.products.slice(0, 5), // Keep only first 5 for preview
+            storeInfo: storeData.store
+          };
+        } else {
+          productsMap[store._id] = {
+            count: 0,
+            products: [],
+            storeInfo: store
+          };
+        }
+      } catch (error) {
+        console.error(`Error fetching products for store ${store._id}:`, error);
+        productsMap[store._id] = {
+          count: 0,
+          products: [],
+          storeInfo: store
+        };
+      }
+    }
+    
+    setStoreProducts(productsMap);
+  };
+
+  // Refresh products for a single store
+  const refreshStoreProducts = async (storeId) => {
+    try {
+      const response = await getStoreProductsAPI(storeId);
+      const storeData = response?.data;
+      
+      if (storeData) {
+        setStoreProducts(prev => ({
+          ...prev,
+          [storeId]: {
+            count: storeData.products?.length || 0,
+            products: storeData.products?.slice(0, 5) || [],
+            storeInfo: storeData.store
+          }
+        }));
+      }
+    } catch (error) {
+      console.error(`Error refreshing products for store ${storeId}:`, error);
     }
   };
 
@@ -80,6 +149,8 @@ export default function Stores() {
     .filter(store => {
       if (!store) return false;
       const query = search.toLowerCase();
+      const productCount = storeProducts[store._id]?.count || 0;
+      
       return (
         (store._id && store._id.toLowerCase().includes(query)) ||
         (store.storeName && store.storeName.toLowerCase().includes(query)) ||
@@ -88,6 +159,7 @@ export default function Stores() {
         (store.managerPhone && store.managerPhone.includes(query)) ||
         (store.location?.city && store.location.city.toLowerCase().includes(query)) ||
         (store.location?.address && store.location.address.toLowerCase().includes(query)) ||
+        (productCount.toString().includes(query)) ||
         (store.isActive ? "active" : "inactive").includes(query)
       );
     })
@@ -134,6 +206,189 @@ export default function Stores() {
     
     const editFileInput = document.getElementById('swal-edit-storeImage');
     if (editFileInput) editFileInput.value = "";
+  };
+
+  // Show store products modal
+  const showStoreProductsModal = async (store) => {
+    if (!store) return;
+
+    // Get current products data
+    let productsData = storeProducts[store._id];
+    if (!productsData) {
+      // Fetch if not already loaded
+      try {
+        const response = await getStoreProductsAPI(store._id);
+        productsData = {
+          count: response?.data?.products?.length || 0,
+          products: response?.data?.products || [],
+          storeInfo: response?.data?.store || store
+        };
+      } catch (error) {
+        console.error(`Error fetching products for modal:`, error);
+        productsData = {
+          count: 0,
+          products: [],
+          storeInfo: store
+        };
+      }
+    }
+
+    MySwal.fire({
+      title: <div className="text-xl font-bold" style={{ color: themeColors.text }}>Store Products</div>,
+      html: (
+        <div className="text-left space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+          <div className="mb-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-16 h-16 rounded-lg overflow-hidden">
+                <img
+                  src={store?.storeImageUrl}
+                  alt={store.storeName}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.src = "https://via.placeholder.com/100?text=Store";
+                  }}
+                />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg">{store?.storeName}</h3>
+                <p className="text-sm opacity-70">{store?.storeCode}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className={`px-2 py-1 rounded-full text-xs ${
+                    store?.isActive 
+                      ? "bg-green-100 text-green-800" 
+                      : "bg-red-100 text-red-800"
+                  }`}>
+                    {store?.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                  <span className="px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                    {productsData.count} Products
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {productsData.count === 0 ? (
+            <div className="text-center py-8">
+              <FaBox className="text-4xl opacity-30 mx-auto mb-3" style={{ color: themeColors.text }} />
+              <p className="opacity-70 mb-2" style={{ color: themeColors.text }}>No products assigned to this store</p>
+              <p className="text-xs opacity-70" style={{ color: themeColors.text }}>
+                Assign products from the Products page
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold" style={{ color: themeColors.text }}>Assigned Products</h4>
+                <span className="text-sm opacity-70" style={{ color: themeColors.text }}>
+                  Showing {productsData.products.length} of {productsData.count}
+                </span>
+              </div>
+              
+              <div className="space-y-2">
+                {productsData.products.map((product, index) => (
+                  <div
+                    key={product._id || index}
+                    className="p-3 rounded-lg border flex items-center gap-3 hover:bg-opacity-10 transition-colors"
+                    style={{ 
+                      borderColor: themeColors.border,
+                      backgroundColor: product?.isActive ? 'transparent' : themeColors.background + '30'
+                    }}
+                  >
+                    <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                      <img
+                        src={product?.images?.[0]}
+                        alt={product.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = "https://via.placeholder.com/100?text=No+Image";
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="font-medium truncate" style={{ color: themeColors.text }}>
+                            {product.name}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-sm font-bold" style={{ color: themeColors.text }}>
+                              ₹{product.price}
+                            </span>
+                            {product.offerPrice && product.offerPrice < product.price && (
+                              <>
+                                <span className="text-sm line-through opacity-70" style={{ color: themeColors.text }}>
+                                  ₹{product.price}
+                                </span>
+                                <span className="text-xs bg-red-100 text-red-800 px-1.5 py-0.5 rounded">
+                                  {product.percentageOff}% OFF
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            product?.isActive 
+                              ? "bg-green-100 text-green-800" 
+                              : "bg-red-100 text-red-800"
+                          }`}>
+                            {product.isActive ? 'Active' : 'Inactive'}
+                          </span>
+                          <span className="text-xs opacity-70">
+                            Stock: {product.stockQuantity} {product.unit}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-xs opacity-70 bg-gray-100 px-2 py-0.5 rounded">
+                          {product.category?.title || 'No Category'}
+                        </span>
+                        <span className="text-xs opacity-70">
+                          ID: {product._id?.substring(0, 8)}...
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              {productsData.count > productsData.products.length && (
+                <div className="text-center pt-2">
+                  <button
+                    onClick={() => {
+                      // Close current modal and open full products page or bigger modal
+                      Swal.close();
+                      toast.info(`Total ${productsData.count} products. View all in Products page.`);
+                    }}
+                    className="text-sm opacity-70 hover:opacity-100 transition-opacity"
+                    style={{ color: themeColors.primary }}
+                  >
+                    View all {productsData.count} products →
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="text-xs opacity-70 p-3 rounded-lg border" style={{ borderColor: themeColors.border }}>
+            <p className="font-medium mb-1">Note:</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Products are shared across multiple stores</li>
+              <li>Inactive products are shown with reduced opacity</li>
+              <li>Stock quantity is per store inventory</li>
+              <li>To manage assignments, go to Products page</li>
+            </ul>
+          </div>
+        </div>
+      ),
+      showConfirmButton: false,
+      showCloseButton: true,
+      width: '600px',
+      background: themeColors.background,
+    });
   };
 
   // Show create store modal
@@ -1045,6 +1300,8 @@ export default function Stores() {
   const viewStoreDetails = (store) => {
     if (!store) return;
 
+    const productsData = storeProducts[store._id] || { count: 0, products: [] };
+
     MySwal.fire({
       title: <div className="text-xl font-bold" style={{ color: themeColors.text }}>Store Details</div>,
       html: (
@@ -1080,9 +1337,31 @@ export default function Stores() {
               </div>
             </div>
             <div>
+              <p className="text-sm opacity-70">Assigned Products</p>
+              <button
+                onClick={() => {
+                  Swal.close();
+                  showStoreProductsModal(store);
+                }}
+                className="px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors flex items-center gap-1"
+              >
+                <FaBox className="text-xs" />
+                {productsData.count} products
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
               <p className="text-sm opacity-70">Created</p>
               <p className="font-medium">
                 {store?.createdAt ? new Date(store.createdAt).toLocaleDateString() : 'N/A'}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm opacity-70">Last Updated</p>
+              <p className="font-medium">
+                {store?.updatedAt ? new Date(store.updatedAt).toLocaleDateString() : 'N/A'}
               </p>
             </div>
           </div>
@@ -1213,6 +1492,11 @@ export default function Stores() {
   // Get unique cities count
   const uniqueCities = [...new Set(stores.map(store => store?.location?.city).filter(Boolean))].length;
 
+  // Calculate total products assigned to all stores
+  const totalProductsAssigned = Object.values(storeProducts).reduce(
+    (total, data) => total + (data.count || 0), 0
+  );
+
   return (
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
@@ -1232,7 +1516,7 @@ export default function Stores() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search stores..."
+              placeholder="Search stores or products..."
               className="pl-10 pr-4 py-2 rounded-xl border w-full md:w-64"
               style={{
                 borderColor: themeColors.border,
@@ -1285,7 +1569,7 @@ export default function Stores() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="rounded-xl p-4 border" style={{ backgroundColor: themeColors.surface, borderColor: themeColors.border }}>
           <div className="flex items-center justify-between">
             <div>
@@ -1306,6 +1590,18 @@ export default function Stores() {
             </div>
             <div className="p-3 rounded-full" style={{ backgroundColor: '#10B98120', color: '#10B981' }}>
               <FaCheckCircle size={24} />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl p-4 border" style={{ backgroundColor: themeColors.surface, borderColor: themeColors.border }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-70" style={{ color: themeColors.text }}>Total Products</p>
+              <p className="text-2xl font-bold" style={{ color: themeColors.text }}>{totalProductsAssigned}</p>
+            </div>
+            <div className="p-3 rounded-full" style={{ backgroundColor: '#8B5CF620', color: '#8B5CF6' }}>
+              <FaBox size={24} />
             </div>
           </div>
         </div>
@@ -1360,149 +1656,234 @@ export default function Stores() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredStores.map((store, index) => (
-            <div
-              key={store?._id || `store-${index}`}
-              className="rounded-2xl border overflow-hidden group hover:shadow-lg transition-all"
-              style={{
-                backgroundColor: themeColors.surface,
-                borderColor: themeColors.border,
-                opacity: store?.isActive ? 1 : 0.8
-              }}
-            >
-              {/* Store Image */}
+          {filteredStores.map((store, index) => {
+            const productsData = storeProducts[store._id] || { count: 0, products: [] };
+            
+            return (
               <div
-                className="relative h-48 overflow-hidden cursor-pointer bg-gray-50"
-                onClick={() => viewStoreDetails(store)}
+                key={store?._id || `store-${index}`}
+                className="rounded-2xl border overflow-hidden group hover:shadow-lg transition-all"
+                style={{
+                  backgroundColor: themeColors.surface,
+                  borderColor: themeColors.border,
+                  opacity: store?.isActive ? 1 : 0.8
+                }}
               >
-                <img
-                  src={store?.storeImageUrl}
-                  alt={store?.storeName}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                  onError={(e) => {
-                    e.target.onerror = null;
-                    e.target.src = "https://via.placeholder.com/600x300?text=Store+Image";
-                  }}
-                />
-                <div className="absolute top-2 right-2">
-                  <div className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    store?.isActive
-                      ? "bg-green-100 text-green-800"
-                      : "bg-red-100 text-red-800"
-                  }`}>
-                    {store?.isActive ? 'Active' : 'Inactive'}
+                {/* Store Image */}
+                <div
+                  className="relative h-48 overflow-hidden cursor-pointer bg-gray-50"
+                  onClick={() => viewStoreDetails(store)}
+                >
+                  <img
+                    src={store?.storeImageUrl}
+                    alt={store?.storeName}
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src = "https://via.placeholder.com/600x300?text=Store+Image";
+                    }}
+                  />
+                  <div className="absolute top-2 right-2 flex flex-col gap-1">
+                    <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      store?.isActive
+                        ? "bg-green-100 text-green-800"
+                        : "bg-red-100 text-red-800"
+                    }`}>
+                      {store?.isActive ? 'Active' : 'Inactive'}
+                    </div>
+                    {productsData.count > 0 && (
+                      <div 
+                        className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 cursor-pointer hover:bg-blue-200 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          showStoreProductsModal(store);
+                        }}
+                      >
+                        <FaBox className="inline mr-1" /> {productsData.count} products
+                      </div>
+                    )}
+                  </div>
+                  <div className="absolute bottom-2 left-2">
+                    <div className="px-2 py-1 rounded-full bg-black/70 text-white text-xs font-medium">
+                      <FaIdCard className="inline mr-1" /> {store?.storeCode}
+                    </div>
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-3">
+                    <p className="text-white font-bold text-lg truncate">{store?.storeName}</p>
+                    <p className="text-white text-sm truncate">
+                      <FaMapPin className="inline mr-1" /> {store?.location?.city}, {store?.location?.state}
+                    </p>
                   </div>
                 </div>
-                <div className="absolute bottom-2 left-2">
-                  <div className="px-2 py-1 rounded-full bg-black/70 text-white text-xs font-medium">
-                    <FaIdCard className="inline mr-1" /> {store?.storeCode}
+
+                {/* Content */}
+                <div className="p-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm opacity-70 flex items-center gap-1" style={{ color: themeColors.text }}>
+                        <FaMapMarkerAlt /> Address
+                      </p>
+                      <p className="text-xs font-medium truncate" style={{ color: themeColors.text }}>
+                        {store?.location?.address || 'N/A'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm opacity-70 flex items-center gap-1" style={{ color: themeColors.text }}>
+                        <FaPhone /> Phone
+                      </p>
+                      <p className="text-xs font-medium" style={{ color: themeColors.text }}>
+                        {store?.managerPhone || 'N/A'}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-3">
-                  <p className="text-white font-bold text-lg truncate">{store?.storeName}</p>
-                  <p className="text-white text-sm truncate">
-                    <FaMapPin className="inline mr-1" /> {store?.location?.city}, {store?.location?.state}
-                  </p>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm opacity-70 flex items-center gap-1" style={{ color: themeColors.text }}>
+                        <FaUserTie /> Manager
+                      </p>
+                      <p className="text-xs font-medium truncate" style={{ color: themeColors.text }}>
+                        {store?.managerName || 'N/A'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm opacity-70 flex items-center gap-1" style={{ color: themeColors.text }}>
+                        <FaClock /> Hours
+                      </p>
+                      <p className="text-xs font-medium truncate" style={{ color: themeColors.text }}>
+                        {store?.openingHours || 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Products Preview */}
+                  {productsData.count > 0 && productsData.products.length > 0 && (
+                    <div className="border-t pt-3" style={{ borderColor: themeColors.border }}>
+                      <p className="text-sm opacity-70 mb-2 flex items-center justify-between" style={{ color: themeColors.text }}>
+                        <span className="flex items-center gap-1">
+                          <FaBox /> Products Preview
+                        </span>
+                        <button
+                          onClick={() => showStoreProductsModal(store)}
+                          className="text-xs opacity-70 hover:opacity-100 transition-opacity"
+                          style={{ color: themeColors.primary }}
+                        >
+                          View all →
+                        </button>
+                      </p>
+                      <div className="flex -space-x-2">
+                        {productsData.products.slice(0, 4).map((product, idx) => (
+                          <div
+                            key={product._id || idx}
+                            className="w-8 h-8 rounded-full border-2 overflow-hidden"
+                            style={{ 
+                              borderColor: themeColors.background,
+                              backgroundColor: themeColors.background,
+                              zIndex: 5 - idx
+                            }}
+                            title={`${product.name} (₹${product.price})`}
+                          >
+                            <img
+                              src={product.images?.[0]}
+                              alt={product.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.src = "https://via.placeholder.com/50?text=P";
+                              }}
+                            />
+                          </div>
+                        ))}
+                        {productsData.count > 4 && (
+                          <div 
+                            className="w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-medium"
+                            style={{ 
+                              borderColor: themeColors.background,
+                              backgroundColor: themeColors.background + '90',
+                              color: themeColors.text,
+                              zIndex: 1
+                            }}
+                            title={`${productsData.count - 4} more products`}
+                          >
+                            +{productsData.count - 4}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-between pt-4 border-t" style={{ borderColor: themeColors.border }}>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => viewStoreDetails(store)}
+                        className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
+                        style={{ backgroundColor: themeColors.primary + '20', color: themeColors.primary }}
+                        title="View Details"
+                      >
+                        <FaEyeIcon />
+                      </button>
+                      <button
+                        onClick={() => copyToClipboard(store?._id)}
+                        className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
+                        style={{ backgroundColor: '#8B5CF620', color: '#8B5CF6' }}
+                        title="Copy ID"
+                      >
+                        <FaClipboard />
+                      </button>
+                      <button
+                        onClick={() => showStoreProductsModal(store)}
+                        className={`p-2 rounded-lg hover:bg-opacity-20 transition-colors ${
+                          productsData.count > 0 ? 'bg-blue-100 text-blue-700' : ''
+                        }`}
+                        style={{ 
+                          backgroundColor: productsData.count > 0 ? '#3B82F620' : '#8B5CF620',
+                          color: productsData.count > 0 ? '#3B82F6' : '#8B5CF6'
+                        }}
+                        title={productsData.count > 0 ? "View Products" : "No Products"}
+                        disabled={productsData.count === 0}
+                      >
+                        <FaBox />
+                      </button>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => showEditModal(store)}
+                        className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
+                        style={{ backgroundColor: '#F59E0B20', color: '#F59E0B' }}
+                        title="Edit Store"
+                        disabled={actionLoading}
+                      >
+                        <FaEdit />
+                      </button>
+                      <button
+                        onClick={() => toggleStoreStatus(store)}
+                        disabled={actionLoading}
+                        className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
+                        style={{
+                          backgroundColor: store?.isActive ? '#F59E0B20' : '#10B98120',
+                          color: store?.isActive ? '#F59E0B' : '#10B981'
+                        }}
+                        title={store?.isActive ? "Deactivate" : "Activate"}
+                      >
+                        {store?.isActive ? <FaToggleOff /> : <FaToggleOn />}
+                      </button>
+                      <button
+                        onClick={() => handleDelete(store)}
+                        disabled={actionLoading}
+                        className="p-2 rounded-lg hover:bg-opacity-20 transition-colors text-red-500"
+                        style={{ backgroundColor: '#EF444420' }}
+                        title="Delete Store"
+                      >
+                        <FaTrash />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
-
-              {/* Content */}
-              <div className="p-4 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm opacity-70 flex items-center gap-1" style={{ color: themeColors.text }}>
-                      <FaMapMarkerAlt /> Address
-                    </p>
-                    <p className="text-xs font-medium truncate" style={{ color: themeColors.text }}>
-                      {store?.location?.address || 'N/A'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm opacity-70 flex items-center gap-1" style={{ color: themeColors.text }}>
-                      <FaPhone /> Phone
-                    </p>
-                    <p className="text-xs font-medium" style={{ color: themeColors.text }}>
-                      {store?.managerPhone || 'N/A'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm opacity-70 flex items-center gap-1" style={{ color: themeColors.text }}>
-                      <FaUserTie /> Manager
-                    </p>
-                    <p className="text-xs font-medium truncate" style={{ color: themeColors.text }}>
-                      {store?.managerName || 'N/A'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm opacity-70 flex items-center gap-1" style={{ color: themeColors.text }}>
-                      <FaClock /> Hours
-                    </p>
-                    <p className="text-xs font-medium truncate" style={{ color: themeColors.text }}>
-                      {store?.openingHours || 'N/A'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center justify-between pt-4 border-t" style={{ borderColor: themeColors.border }}>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => viewStoreDetails(store)}
-                      className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
-                      style={{ backgroundColor: themeColors.primary + '20', color: themeColors.primary }}
-                      title="View Details"
-                    >
-                      <FaEye />
-                    </button>
-                    <button
-                      onClick={() => copyToClipboard(store?._id)}
-                      className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
-                      style={{ backgroundColor: '#8B5CF620', color: '#8B5CF6' }}
-                      title="Copy ID"
-                    >
-                      <FaClipboard />
-                    </button>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => showEditModal(store)}
-                      className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
-                      style={{ backgroundColor: '#F59E0B20', color: '#F59E0B' }}
-                      title="Edit Store"
-                      disabled={actionLoading}
-                    >
-                      <FaEdit />
-                    </button>
-                    <button
-                      onClick={() => toggleStoreStatus(store)}
-                      disabled={actionLoading}
-                      className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
-                      style={{
-                        backgroundColor: store?.isActive ? '#F59E0B20' : '#10B98120',
-                        color: store?.isActive ? '#F59E0B' : '#10B981'
-                      }}
-                      title={store?.isActive ? "Deactivate" : "Activate"}
-                    >
-                      {store?.isActive ? <FaToggleOff /> : <FaToggleOn />}
-                    </button>
-                    <button
-                      onClick={() => handleDelete(store)}
-                      disabled={actionLoading}
-                      className="p-2 rounded-lg hover:bg-opacity-20 transition-colors text-red-500"
-                      style={{ backgroundColor: '#EF444420' }}
-                      title="Delete Store"
-                    >
-                      <FaTrash />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1510,6 +1891,7 @@ export default function Stores() {
       <div className="text-center text-sm opacity-70" style={{ color: themeColors.text }}>
         <p>
           Showing {filteredStores.length} of {stores.length} stores •
+          Total Products: {totalProductsAssigned} assigned •
           Sorted by: {sortByDate === "desc" ? "Newest First" : "Oldest First"} •
           Last updated: {lastUpdated ? lastUpdated.toLocaleString() : '—'}
         </p>

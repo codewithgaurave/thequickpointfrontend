@@ -27,7 +27,14 @@ import {
   FaClipboard,
   FaFilter,
   FaWarehouse,
-  FaWeight
+  FaWeight,
+  FaStore,
+  FaCheck,
+  FaTimes,
+  FaList,
+  FaMapMarkerAlt,
+  FaUnlink,
+  FaLink
 } from "react-icons/fa";
 import { useTheme } from "../context/ThemeContext";
 import {
@@ -38,6 +45,7 @@ import {
   deleteProductAPI,
 } from "../apis/productApi";
 import { getAllCategoriesAPI } from "../apis/categoryApi";
+import { getAllStoresAPI, assignProductToStoreAPI, unassignProductFromStoreAPI, getStoreProductsAPI } from "../apis/storeApi";
 
 const MySwal = withReactContent(Swal);
 
@@ -46,33 +54,119 @@ export default function Products() {
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [stores, setStores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [sortByDate, setSortByDate] = useState("desc");
   const [actionLoading, setActionLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState("all");
-  const [imagePreviews, setImagePreviews] = useState([]); // kept for internal tracking if needed
+  const [imagePreviews, setImagePreviews] = useState([]);
+  const [storeAssignmentLoading, setStoreAssignmentLoading] = useState({});
+  const [storeProductsData, setStoreProductsData] = useState({}); // StoreID -> {store: {}, products: []}
 
-  // Fetch all products and categories
+  // Fetch all products, categories, and stores
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [productsRes, categoriesRes] = await Promise.all([
+      const [productsRes, categoriesRes, storesRes] = await Promise.all([
         getAllProductsAPI(),
-        getAllCategoriesAPI()
+        getAllCategoriesAPI(),
+        getAllStoresAPI()
       ]);
-      setProducts(productsRes?.data?.products || []);
+      
+      const productsData = productsRes?.data?.products || [];
+      setProducts(productsData);
       setCategories(categoriesRes?.data?.categories || []);
+      const storesData = storesRes?.data?.stores || [];
+      setStores(storesData);
+      
+      // Fetch products for each store to get assignment data
+      await fetchStoreProductsData(storesData, productsData);
+      
       setLastUpdated(new Date());
     } catch (err) {
       console.error("Error fetching data:", err);
       toast.error("Failed to load data");
       setProducts([]);
       setCategories([]);
+      setStores([]);
+      setStoreProductsData({});
     } finally {
       setLoading(false);
     }
+  };
+
+  // Fetch products for each store
+  const fetchStoreProductsData = async (storesList, allProducts) => {
+    const storeProductsMap = {};
+    
+    // Create initial mapping
+    storesList.forEach(store => {
+      storeProductsMap[store._id] = {
+        store,
+        products: []
+      };
+    });
+
+    // Fetch products for each store
+    for (const store of storesList) {
+      try {
+        const response = await getStoreProductsAPI(store._id);
+        const storeData = response?.data;
+        
+        if (storeData && storeData.products) {
+          // Map product data with additional assignment info
+          const productsWithAssignment = storeData.products.map(product => ({
+            ...product,
+            assignedToStore: true,
+            storeId: store._id,
+            storeName: store.storeName
+          }));
+          
+          storeProductsMap[store._id] = {
+            store: storeData.store || store,
+            products: productsWithAssignment
+          };
+        }
+      } catch (error) {
+        console.error(`Error fetching products for store ${store._id}:`, error);
+        // Keep empty products array if fetch fails
+      }
+    }
+    
+    setStoreProductsData(storeProductsMap);
+  };
+
+  // Get assigned stores for a product
+  const getAssignedStoresForProduct = (productId) => {
+    const assignedStores = [];
+    
+    Object.entries(storeProductsData).forEach(([storeId, storeData]) => {
+      const hasProduct = storeData.products.some(p => p._id === productId);
+      if (hasProduct) {
+        assignedStores.push({
+          _id: storeId,
+          storeName: storeData.store?.storeName || 'Unknown Store',
+          storeImageUrl: storeData.store?.storeImageUrl,
+          location: storeData.store?.location
+        });
+      }
+    });
+    
+    return assignedStores;
+  };
+
+  // Get product with assigned stores info
+  const getProductWithStores = (product) => {
+    if (!product) return product;
+    
+    const assignedStores = getAssignedStoresForProduct(product._id);
+    return {
+      ...product,
+      assignedStores,
+      isAssignedToAnyStore: assignedStores.length > 0
+    };
   };
 
   useEffect(() => {
@@ -91,12 +185,16 @@ export default function Products() {
 
       // Search filter
       const query = search.toLowerCase();
+      const productWithStores = getProductWithStores(product);
+      const assignedStoreNames = productWithStores.assignedStores?.map(s => s.storeName.toLowerCase()) || [];
+      
       return (
         (product._id && product._id.toLowerCase().includes(query)) ||
         (product.name && product.name.toLowerCase().includes(query)) ||
         (product.description && product.description.toLowerCase().includes(query)) ||
         (product.category?.title && product.category.title.toLowerCase().includes(query)) ||
-        (product.isActive ? "active" : "inactive").includes(query)
+        (product.isActive ? "active" : "inactive").includes(query) ||
+        assignedStoreNames.some(storeName => storeName.includes(query))
       );
     })
     .sort((a, b) => {
@@ -106,6 +204,173 @@ export default function Products() {
       }
       return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
     });
+
+  // Handle store assignment
+  const handleStoreAssignment = async (productId, storeId, assign = true) => {
+    const action = assign ? 'assign' : 'unassign';
+    const loadingKey = `${productId}-${storeId}`;
+    const product = products.find(p => p._id === productId);
+    const store = stores.find(s => s._id === storeId);
+    
+    try {
+      setStoreAssignmentLoading(prev => ({ ...prev, [loadingKey]: true }));
+      
+      if (assign) {
+        await assignProductToStoreAPI(storeId, productId);
+        toast.success(`Product "${product?.name}" assigned to "${store?.storeName}" successfully`);
+      } else {
+        await unassignProductFromStoreAPI(storeId, productId);
+        toast.success(`Product "${product?.name}" unassigned from "${store?.storeName}" successfully`);
+      }
+      
+      // Refresh data
+      await fetchData();
+    } catch (error) {
+      console.error(`Error ${action}ing product to store:`, error);
+      toast.error(`Failed to ${action} product to store: ${error.response?.data?.message || error.message}`);
+    } finally {
+      setStoreAssignmentLoading(prev => ({ ...prev, [loadingKey]: false }));
+    }
+  };
+
+  // Show store assignment modal
+  const showStoreAssignmentModal = (product) => {
+    if (!product) return;
+
+    const productWithStores = getProductWithStores(product);
+    const currentAssignedStoreIds = productWithStores.assignedStores?.map(store => store._id) || [];
+    
+    MySwal.fire({
+      title: <div className="text-xl font-bold" style={{ color: themeColors.text }}>Manage Store Assignment</div>,
+      html: (
+        <div className="text-left space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+          <div className="mb-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-16 h-16 rounded-lg overflow-hidden">
+                <img
+                  src={product?.images?.[0]}
+                  alt={product.name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.src = "https://via.placeholder.com/100?text=No+Image";
+                  }}
+                />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg">{product?.name}</h3>
+                <p className="text-sm opacity-70">
+                  {currentAssignedStoreIds.length > 0 
+                    ? `Assigned to ${currentAssignedStoreIds.length} store(s)` 
+                    : 'Not assigned to any stores'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {stores.length === 0 ? (
+              <div className="text-center py-8">
+                <FaStore className="text-4xl opacity-30 mx-auto mb-3" />
+                <p className="opacity-70">No stores available</p>
+              </div>
+            ) : (
+              stores.map(store => {
+                const isAssigned = currentAssignedStoreIds.includes(store._id);
+                const isLoading = storeAssignmentLoading[`${product._id}-${store._id}`];
+                const isStoreActive = store.isActive;
+                
+                return (
+                  <div
+                    key={store._id}
+                    className={`p-3 rounded-lg border flex items-center justify-between ${
+                      isAssigned ? 'border-green-500 bg-green-50' : ''
+                    } ${!isStoreActive ? 'opacity-60' : ''}`}
+                    style={{ borderColor: themeColors.border }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full overflow-hidden">
+                        <img
+                          src={store.storeImageUrl || "https://via.placeholder.com/100?text=Store"}
+                          alt={store.storeName}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.target.onerror = null;
+                            e.target.src = "https://via.placeholder.com/100?text=Store";
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <p className="font-medium">{store.storeName}</p>
+                        <div className="flex items-center gap-2 text-xs opacity-70">
+                          <FaMapMarkerAlt />
+                          <span>{store.location?.city || 'Unknown'}</span>
+                          <span>•</span>
+                          <span className={`px-2 py-0.5 rounded-full ${
+                            isStoreActive 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-red-100 text-red-800'
+                          }`}>
+                            {isStoreActive ? 'Active' : 'Inactive'}
+                          </span>
+                          {isAssigned && (
+                            <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-800">
+                              Assigned
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <button
+                      onClick={async () => {
+                        await handleStoreAssignment(product._id, store._id, !isAssigned);
+                      }}
+                      disabled={isLoading || !isStoreActive}
+                      className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all ${
+                        isAssigned
+                          ? 'bg-red-500 hover:bg-red-600 text-white'
+                          : 'bg-green-500 hover:bg-green-600 text-white'
+                      } ${!isStoreActive ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={!isStoreActive ? 'Store is inactive' : ''}
+                    >
+                      {isLoading ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      ) : isAssigned ? (
+                        <>
+                          <FaUnlink />
+                          <span>Unassign</span>
+                        </>
+                      ) : (
+                        <>
+                          <FaLink />
+                          <span>Assign</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="text-xs opacity-70 p-3 rounded-lg border" style={{ borderColor: themeColors.border }}>
+            <p className="font-medium mb-1">Note:</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Assigning a product makes it available for sale in that store</li>
+              <li>Only active stores can be assigned products</li>
+              <li>Products can be assigned to multiple stores simultaneously</li>
+              <li>Changes are reflected immediately in store product listings</li>
+            </ul>
+          </div>
+        </div>
+      ),
+      showConfirmButton: false,
+      showCloseButton: true,
+      width: '600px',
+      background: themeColors.background,
+    });
+  };
 
   // handleImagePreview writes preview immediately into modal DOM and also updates state
   // mode: 'create' or 'edit' (used to pick correct preview element ids)
@@ -948,6 +1213,9 @@ export default function Products() {
   const handleDelete = async (product) => {
     if (!product) return;
 
+    const productWithStores = getProductWithStores(product);
+    const hasAssignments = productWithStores.assignedStores?.length > 0;
+
     const result = await MySwal.fire({
       title: <div style={{ color: themeColors.text }}>Delete Product</div>,
       html: <div style={{ color: themeColors.text }}>
@@ -984,6 +1252,15 @@ export default function Products() {
                   Price: ₹{product?.price} • Stock: {product?.stockQuantity}
                 </div>
               </div>
+              {hasAssignments && (
+                <div className="mt-2 p-2 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <p className="text-xs text-yellow-700 font-medium">
+                    <FaStore className="inline mr-1" />
+                    This product is assigned to {productWithStores.assignedStores.length} store(s).
+                    It will be removed from all stores upon deletion.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1018,6 +1295,8 @@ export default function Products() {
   // View product details
   const viewProductDetails = (product) => {
     if (!product) return;
+
+    const productWithStores = getProductWithStores(product);
 
     MySwal.fire({
       title: <div className="text-xl font-bold" style={{ color: themeColors.text }}>Product Details</div>,
@@ -1117,6 +1396,78 @@ export default function Products() {
           </div>
 
           <div>
+            <p className="text-sm opacity-70">Store Assignments ({productWithStores.assignedStores?.length || 0})</p>
+            <div className="space-y-2 mt-2 max-h-40 overflow-y-auto">
+              {productWithStores.assignedStores && productWithStores.assignedStores.length > 0 ? (
+                productWithStores.assignedStores.map((store, index) => {
+                  const isLoading = storeAssignmentLoading[`${product._id}-${store._id}`];
+                  return (
+                    <div
+                      key={store._id || index}
+                      className="p-2 rounded-lg border flex items-center justify-between"
+                      style={{ borderColor: themeColors.border }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full overflow-hidden">
+                          <img
+                            src={store.storeImageUrl || "https://via.placeholder.com/50?text=Store"}
+                            alt={store.storeName}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.src = "https://via.placeholder.com/50?text=Store";
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm">{store.storeName}</p>
+                          <p className="text-xs opacity-70">{store.location?.city || 'Unknown'}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => await handleStoreAssignment(product._id, store._id, false)}
+                        disabled={isLoading}
+                        className="text-xs px-3 py-1.5 rounded bg-red-100 text-red-700 hover:bg-red-200 flex items-center gap-1"
+                      >
+                        {isLoading ? (
+                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-red-700"></div>
+                        ) : (
+                          <>
+                            <FaUnlink className="text-xs" />
+                            <span>Unassign</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-4 border rounded-lg" style={{ borderColor: themeColors.border }}>
+                  <FaStore className="text-2xl opacity-30 mx-auto mb-2" />
+                  <p className="text-sm opacity-70">Not assigned to any stores</p>
+                </div>
+              )}
+            </div>
+            <div className="mt-2">
+              <button
+                onClick={() => {
+                  Swal.close();
+                  showStoreAssignmentModal(product);
+                }}
+                className="w-full py-2 rounded-lg border flex items-center justify-center gap-2 hover:bg-opacity-10"
+                style={{ 
+                  borderColor: themeColors.primary,
+                  backgroundColor: themeColors.primary + '20',
+                  color: themeColors.primary
+                }}
+              >
+                <FaStore />
+                Manage Store Assignments
+              </button>
+            </div>
+          </div>
+
+          <div>
             <p className="text-sm opacity-70">Description</p>
             <p className="p-3 rounded-lg border" style={{ borderColor: themeColors.border }}>
               {product?.description || 'No description'}
@@ -1176,6 +1527,12 @@ export default function Products() {
     return total + (product?.price || 0) * (product?.stockQuantity || 0);
   }, 0);
 
+  // Count products assigned to stores
+  const assignedProductsCount = products.filter(p => {
+    const productWithStores = getProductWithStores(p);
+    return productWithStores.assignedStores?.length > 0;
+  }).length;
+
   return (
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
@@ -1185,7 +1542,7 @@ export default function Products() {
             Products
           </h2>
           <p className="text-sm opacity-75 mt-1" style={{ color: themeColors.text }}>
-            Manage products with images, pricing, and inventory
+            Manage products with images, pricing, inventory, and store assignments
           </p>
         </div>
 
@@ -1195,7 +1552,7 @@ export default function Products() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search products..."
+              placeholder="Search products or stores..."
               className="pl-10 pr-4 py-2 rounded-xl border w-full md:w-64"
               style={{
                 borderColor: themeColors.border,
@@ -1266,7 +1623,7 @@ export default function Products() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="rounded-xl p-4 border" style={{ backgroundColor: themeColors.surface, borderColor: themeColors.border }}>
           <div className="flex items-center justify-between">
             <div>
@@ -1299,6 +1656,18 @@ export default function Products() {
             </div>
             <div className="p-3 rounded-full" style={{ backgroundColor: '#F59E0B20', color: '#F59E0B' }}>
               <FaTimesCircle size={24} />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl p-4 border" style={{ backgroundColor: themeColors.surface, borderColor: themeColors.border }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-70" style={{ color: themeColors.text }}>Assigned Stores</p>
+              <p className="text-2xl font-bold" style={{ color: themeColors.text }}>{assignedProductsCount}</p>
+            </div>
+            <div className="p-3 rounded-full" style={{ backgroundColor: '#8B5CF620', color: '#8B5CF6' }}>
+              <FaStore size={24} />
             </div>
           </div>
         </div>
@@ -1343,154 +1712,202 @@ export default function Products() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredProducts.map((product, index) => (
-            <div
-              key={product?._id || `product-${index}`}
-              className="rounded-2xl border overflow-hidden group hover:shadow-lg transition-all"
-              style={{
-                backgroundColor: themeColors.surface,
-                borderColor: themeColors.border,
-                opacity: product?.isActive ? 1 : 0.8
-              }}
-            >
-              {/* Image with discount badge */}
+          {filteredProducts.map((product, index) => {
+            const productWithStores = getProductWithStores(product);
+            const assignedStoresCount = productWithStores.assignedStores?.length || 0;
+            
+            return (
               <div
-                className="relative h-48 overflow-hidden cursor-pointer bg-gray-50"
-                onClick={() => viewProductDetails(product)}
+                key={product?._id || `product-${index}`}
+                className="rounded-2xl border overflow-hidden group hover:shadow-lg transition-all"
+                style={{
+                  backgroundColor: themeColors.surface,
+                  borderColor: themeColors.border,
+                  opacity: product?.isActive ? 1 : 0.8
+                }}
               >
-                <img
-                  src={product?.images?.[0]}
-                  alt={product?.name}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                  onError={(e) => {
-                    e.target.onerror = null;
-                    e.target.src = "https://via.placeholder.com/400x400?text=No+Image";
-                  }}
-                />
+                {/* Image with discount badge */}
+                <div
+                  className="relative h-48 overflow-hidden cursor-pointer bg-gray-50"
+                  onClick={() => viewProductDetails(product)}
+                >
+                  <img
+                    src={product?.images?.[0]}
+                    alt={product?.name}
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src = "https://via.placeholder.com/400x400?text=No+Image";
+                    }}
+                  />
 
-                {/* Discount Badge */}
-                {product?.offerPrice && product?.offerPrice < product?.price && (
-                  <div className="absolute top-2 left-2">
-                    <div className="px-3 py-1 rounded-full bg-red-500 text-white text-xs font-bold">
-                      {calculatePercentageOff(product.price, product.offerPrice)}% OFF
+                  {/* Discount Badge */}
+                  {product?.offerPrice && product?.offerPrice < product?.price && (
+                    <div className="absolute top-2 left-2">
+                      <div className="px-3 py-1 rounded-full bg-red-500 text-white text-xs font-bold">
+                        {calculatePercentageOff(product.price, product.offerPrice)}% OFF
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                <div className="absolute top-2 right-2">
-                  <div className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    product?.isActive
-                      ? "bg-green-100 text-green-800"
-                      : "bg-red-100 text-red-800"
-                  }`}>
-                    {product?.isActive ? 'Active' : 'Inactive'}
-                  </div>
-                </div>
-
-                {/* Stock Status */}
-                <div className={`absolute bottom-2 right-2 px-2 py-1 rounded-full text-xs font-medium ${
-                  (product?.stockQuantity || 0) <= 0
-                    ? 'bg-red-100 text-red-800'
-                    : (product?.stockQuantity || 0) < 10
-                      ? 'bg-yellow-100 text-yellow-800'
-                      : 'bg-green-100 text-green-800'
-                }`}>
-                  {product?.stockQuantity <= 0 ? 'Out of Stock' : `${product?.stockQuantity} in stock`}
-                </div>
-
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-3">
-                  <p className="text-white font-bold text-lg truncate">{product?.name}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    {product?.offerPrice && product?.offerPrice < product?.price ? (
-                      <>
-                        <span className="text-white line-through text-sm">₹{product?.price}</span>
-                        <span className="text-green-300 font-bold">₹{product?.offerPrice}</span>
-                      </>
-                    ) : (
-                      <span className="text-white font-bold">₹{product?.price}</span>
+                  <div className="absolute top-2 right-2 flex flex-col gap-1">
+                    <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      product?.isActive
+                        ? "bg-green-100 text-green-800"
+                        : "bg-red-100 text-red-800"
+                    }`}>
+                      {product?.isActive ? 'Active' : 'Inactive'}
+                    </div>
+                    {assignedStoresCount > 0 && (
+                      <div className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 flex items-center gap-1">
+                        <FaStore className="text-xs" />
+                        <span>{assignedStoresCount} store{assignedStoresCount !== 1 ? 's' : ''}</span>
+                      </div>
                     )}
                   </div>
+
+                  {/* Stock Status */}
+                  <div className={`absolute bottom-2 right-2 px-2 py-1 rounded-full text-xs font-medium ${
+                    (product?.stockQuantity || 0) <= 0
+                      ? 'bg-red-100 text-red-800'
+                      : (product?.stockQuantity || 0) < 10
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : 'bg-green-100 text-green-800'
+                  }`}>
+                    {product?.stockQuantity <= 0 ? 'Out of Stock' : `${product?.stockQuantity} in stock`}
+                  </div>
+
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-3">
+                    <p className="text-white font-bold text-lg truncate">{product?.name}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      {product?.offerPrice && product?.offerPrice < product?.price ? (
+                        <>
+                          <span className="text-white line-through text-sm">₹{product?.price}</span>
+                          <span className="text-green-300 font-bold">₹{product?.offerPrice}</span>
+                        </>
+                      ) : (
+                        <span className="text-white font-bold">₹{product?.price}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm opacity-70" style={{ color: themeColors.text }}>Category</p>
+                      <p className="text-xs font-medium" style={{ color: themeColors.text }}>
+                        {product?.category?.title || 'No Category'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm opacity-70" style={{ color: themeColors.text }}>Unit</p>
+                      <p className="text-xs font-medium" style={{ color: themeColors.text }}>
+                        {product?.unit || 'piece'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Assigned Stores */}
+                  {assignedStoresCount > 0 && (
+                    <div>
+                      <p className="text-sm opacity-70 mb-1" style={{ color: themeColors.text }}>Available in:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {productWithStores.assignedStores.slice(0, 2).map((store, idx) => (
+                          <span
+                            key={store._id || idx}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800"
+                          >
+                            <FaStore className="text-xs" />
+                            <span className="truncate max-w-[80px]">{store.storeName}</span>
+                          </span>
+                        ))}
+                        {assignedStoresCount > 2 && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800">
+                            +{assignedStoresCount - 2} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-sm" style={{ color: themeColors.text }}>
+                    <p className="truncate">{product?.description || 'No description'}</p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: themeColors.border }}>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => viewProductDetails(product)}
+                        className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
+                        style={{ backgroundColor: themeColors.primary + '20', color: themeColors.primary }}
+                        title="View Details"
+                      >
+                        <FaEye />
+                      </button>
+                      <button
+                        onClick={() => copyToClipboard(product?._id)}
+                        className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
+                        style={{ backgroundColor: '#8B5CF620', color: '#8B5CF6' }}
+                        title="Copy ID"
+                      >
+                        <FaClipboard />
+                      </button>
+                      <button
+                        onClick={() => showStoreAssignmentModal(product)}
+                        className={`p-2 rounded-lg hover:bg-opacity-20 transition-colors ${
+                          assignedStoresCount > 0 ? 'bg-green-100 text-green-700' : ''
+                        }`}
+                        style={{ 
+                          backgroundColor: assignedStoresCount > 0 ? '#10B98120' : '#8B5CF620',
+                          color: assignedStoresCount > 0 ? '#10B981' : '#8B5CF6'
+                        }}
+                        title={assignedStoresCount > 0 ? "Manage Store Assignments" : "Assign to Stores"}
+                        disabled={storeAssignmentLoading[`${product._id}-loading`]}
+                      >
+                        {assignedStoresCount > 0 ? <FaLink /> : <FaStore />}
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => showEditModal(product)}
+                        className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
+                        style={{ backgroundColor: '#F59E0B20', color: '#F59E0B' }}
+                        title="Edit Product"
+                        disabled={actionLoading}
+                      >
+                        <FaEdit />
+                      </button>
+                      <button
+                        onClick={() => toggleProductStatus(product)}
+                        disabled={actionLoading}
+                        className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
+                        style={{
+                          backgroundColor: product?.isActive ? '#F59E0B20' : '#10B98120',
+                          color: product?.isActive ? '#F59E0B' : '#10B981'
+                        }}
+                        title={product?.isActive ? "Deactivate" : "Activate"}
+                      >
+                        {product?.isActive ? <FaToggleOff /> : <FaToggleOn />}
+                      </button>
+                      <button
+                        onClick={() => handleDelete(product)}
+                        disabled={actionLoading}
+                        className="p-2 rounded-lg hover:bg-opacity-20 transition-colors text-red-500"
+                        style={{ backgroundColor: '#EF444420' }}
+                        title="Delete Product"
+                      >
+                        <FaTrash />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
-
-              {/* Content */}
-              <div className="p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm opacity-70" style={{ color: themeColors.text }}>Category</p>
-                    <p className="text-xs font-medium" style={{ color: themeColors.text }}>
-                      {product?.category?.title || 'No Category'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm opacity-70" style={{ color: themeColors.text }}>Unit</p>
-                    <p className="text-xs font-medium" style={{ color: themeColors.text }}>
-                      {product?.unit || 'piece'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="text-sm" style={{ color: themeColors.text }}>
-                  <p className="truncate">{product?.description || 'No description'}</p>
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: themeColors.border }}>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => viewProductDetails(product)}
-                      className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
-                      style={{ backgroundColor: themeColors.primary + '20', color: themeColors.primary }}
-                      title="View Details"
-                    >
-                      <FaEye />
-                    </button>
-                    <button
-                      onClick={() => copyToClipboard(product?._id)}
-                      className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
-                      style={{ backgroundColor: '#8B5CF620', color: '#8B5CF6' }}
-                      title="Copy ID"
-                    >
-                      <FaClipboard />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => showEditModal(product)}
-                      className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
-                      style={{ backgroundColor: '#F59E0B20', color: '#F59E0B' }}
-                      title="Edit Product"
-                      disabled={actionLoading}
-                    >
-                      <FaEdit />
-                    </button>
-                    <button
-                      onClick={() => toggleProductStatus(product)}
-                      disabled={actionLoading}
-                      className="p-2 rounded-lg hover:bg-opacity-20 transition-colors"
-                      style={{
-                        backgroundColor: product?.isActive ? '#F59E0B20' : '#10B98120',
-                        color: product?.isActive ? '#F59E0B' : '#10B981'
-                      }}
-                      title={product?.isActive ? "Deactivate" : "Activate"}
-                    >
-                      {product?.isActive ? <FaToggleOff /> : <FaToggleOn />}
-                    </button>
-                    <button
-                      onClick={() => handleDelete(product)}
-                      disabled={actionLoading}
-                      className="p-2 rounded-lg hover:bg-opacity-20 transition-colors text-red-500"
-                      style={{ backgroundColor: '#EF444420' }}
-                      title="Delete Product"
-                    >
-                      <FaTrash />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1500,6 +1917,7 @@ export default function Products() {
           Showing {filteredProducts.length} of {products.length} products •
           Category: {selectedCategory === "all" ? "All" : categories.find(c => c._id === selectedCategory)?.title} •
           Sorted by: {sortByDate === "desc" ? "Newest First" : "Oldest First"} •
+          Stores: {stores.length} available •
           Last updated: {lastUpdated ? lastUpdated.toLocaleString() : '—'}
         </p>
       </div>
