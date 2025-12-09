@@ -10,7 +10,10 @@ import {
   FaBox,
   FaStore,
   FaShoppingCart,
-  FaReceipt
+  FaReceipt,
+  FaMotorcycle,
+  FaUserTie,
+  FaTruck
 } from "react-icons/fa";
 
 const AdminDashboard = lazy(() => import("../pages/AdminDashboard"));
@@ -22,6 +25,7 @@ const Categories = lazy(() => import("../pages/Categories"));
 const Products = lazy(() => import("../pages/Products"));
 const Stores = lazy(() => import("../pages/Stores"));
 const Orders = lazy(() => import("../pages/Orders"));
+const DeliveryBoys = lazy(() => import("../pages/DeliveryBoys"));
 
 const routes = [
   {
@@ -61,6 +65,16 @@ const routes = [
     icon: FaStore,
   },
   {
+    path: "/delivery-boys",
+    component: DeliveryBoys,
+    name: "Delivery Boys",
+    icon: FaMotorcycle,
+    // Alternative icons you could use:
+    // FaUserTie (for delivery personnel)
+    // FaTruck (for delivery vehicle)
+    // FaShippingFast (if available)
+  },
+  {
     path: "/sliders",
     component: Sliders,
     name: "Sliders",
@@ -79,6 +93,5 @@ const routes = [
     icon: FaFont,
   },
 ];
-
 
 export default routes;
