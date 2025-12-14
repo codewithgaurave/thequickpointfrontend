@@ -1,87 +1,72 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import { jwtDecode } from "jwt-decode";
+
 
 const AuthContext = createContext();
 
-// Keys for localStorage (ADMIN ONLY)
 const ADMIN_KEY = "admin-data";
 const ADMIN_TOKEN_KEY = "admin-token";
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null); // logged-in ADMIN (admin object)
-  const [token, setToken] = useState(null); // JWT token
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Load saved data from storage
+  // 🔴 LOGOUT FUNCTION
+  const logout = () => {
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem(ADMIN_KEY);
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+  };
+
+  // 🔹 Check token expiry & auto logout
+  const scheduleAutoLogout = (jwtToken) => {
+    try {
+      const decoded = jwtDecode(jwtToken);
+      const expiryTime = decoded.exp * 1000; // exp is in seconds
+      const currentTime = Date.now();
+      const timeout = expiryTime - currentTime;
+
+      if (timeout <= 0) {
+        logout();
+      } else {
+        setTimeout(() => {
+          logout();
+        }, timeout);
+      }
+    } catch (err) {
+      logout();
+    }
+  };
+
+  // 🔹 Load from localStorage
   useEffect(() => {
     try {
       const savedAdmin = localStorage.getItem(ADMIN_KEY);
       const savedToken = localStorage.getItem(ADMIN_TOKEN_KEY);
 
-      if (savedAdmin) {
+      if (savedAdmin && savedToken) {
         setUser(JSON.parse(savedAdmin));
-      }
-      if (savedToken) {
         setToken(savedToken);
+        scheduleAutoLogout(savedToken); // 🔥 AUTO LOGOUT SET
       }
     } catch (err) {
-      // ignore JSON parse errors or localStorage errors
-      console.warn("AuthProvider: error reading localStorage", err);
+      logout();
     } finally {
       setLoading(false);
     }
   }, []);
 
-  /**
-   * setLoginData expects an object like:
-   * {
-   *   admin: { id, adminId, name, ... }  OR a merged admin object
-   *   token: "jwt..."
-   * }
-   *
-   * We normalize so `user` holds only the admin object (no token).
-   */
-  const setLoginData = (loginPayload) => {
-    if (!loginPayload) return;
+  // 🔹 LOGIN SETTER
+  const setLoginData = ({ admin, token }) => {
+    setUser(admin);
+    setToken(token);
 
-    // Support both shapes:
-    // 1) { admin: { ... }, token: "..." }
-    // 2) { ...adminFields, token: "..." } (what you used earlier)
-    const adminObj = loginPayload.admin
-      ? loginPayload.admin
-      : (() => {
-          const cloned = { ...loginPayload };
-          delete cloned.token;
-          return cloned;
-        })();
+    localStorage.setItem(ADMIN_KEY, JSON.stringify(admin));
+    localStorage.setItem(ADMIN_TOKEN_KEY, token);
 
-    const tokenValue = loginPayload.token || null;
-
-    setUser(adminObj || null);
-    setToken(tokenValue);
-
-    try {
-      if (adminObj) {
-        localStorage.setItem(ADMIN_KEY, JSON.stringify(adminObj));
-      }
-      if (tokenValue) {
-        localStorage.setItem(ADMIN_TOKEN_KEY, tokenValue);
-      }
-    } catch (err) {
-      console.warn("AuthProvider: error saving to localStorage", err);
-    }
-  };
-
-  // LOGOUT
-  const logout = () => {
-    setUser(null);
-    setToken(null);
-
-    try {
-      localStorage.removeItem(ADMIN_KEY);
-      localStorage.removeItem(ADMIN_TOKEN_KEY);
-    } catch (err) {
-      console.warn("AuthProvider: error removing from localStorage", err);
-    }
+    scheduleAutoLogout(token); // 🔥 START TIMER ON LOGIN
   };
 
   const isLoggedIn = Boolean(user && token);
@@ -89,7 +74,7 @@ export const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider
       value={{
-        user, // admin object
+        user,
         token,
         loading,
         isLoggedIn,
