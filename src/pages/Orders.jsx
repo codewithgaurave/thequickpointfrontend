@@ -39,7 +39,10 @@ import {
   FaListAlt,
   FaShoppingCart,
   FaPercentage,
-  FaTag
+  FaTag,
+  FaUserCircle,
+  FaHistory,
+  FaList
 } from "react-icons/fa";
 import { useTheme } from "../context/ThemeContext";
 import {
@@ -48,7 +51,8 @@ import {
   updateOrderStatusAPI,
   updatePaymentStatusAPI,
   deleteOrderAPI,
-  getOrderStatsAPI
+  getOrderStatsAPI,
+  getUserOrdersAPI // नया API import करें
 } from "../apis/orderApi";
 
 const MySwal = withReactContent(Swal);
@@ -83,6 +87,11 @@ export default function Orders() {
     avgOrderValue: 0
   });
 
+  // User orders state
+  const [userOrders, setUserOrders] = useState([]);
+  const [showUserOrders, setShowUserOrders] = useState(false);
+  const [userOrdersLoading, setUserOrdersLoading] = useState(false);
+
   // Fetch all orders
   const fetchOrders = async () => {
     try {
@@ -112,6 +121,39 @@ export default function Orders() {
       setFilteredOrders([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch user orders
+  const fetchUserOrders = async (userId) => {
+    try {
+      setUserOrdersLoading(true);
+      const res = await getUserOrdersAPI(userId);
+      const userOrdersData = res?.data?.orders || [];
+      setUserOrders(userOrdersData);
+      setShowUserOrders(true);
+      
+      // Calculate stats for user orders
+      const userStats = {
+        total: userOrdersData.length,
+        pending: userOrdersData.filter(o => o.status === 'pending').length,
+        confirmed: userOrdersData.filter(o => o.status === 'confirmed').length,
+        shipped: userOrdersData.filter(o => o.status === 'shipped').length,
+        delivered: userOrdersData.filter(o => o.status === 'delivered').length,
+        cancelled: userOrdersData.filter(o => o.status === 'cancelled').length,
+        revenue: userOrdersData.reduce((sum, order) => sum + (order.grandTotal || 0), 0),
+        avgOrderValue: userOrdersData.length > 0 ? 
+          userOrdersData.reduce((sum, order) => sum + (order.grandTotal || 0), 0) / userOrdersData.length : 0
+      };
+      
+      return userStats;
+    } catch (err) {
+      console.error("Error fetching user orders:", err);
+      toast.error("Failed to load user orders");
+      setUserOrders([]);
+      return null;
+    } finally {
+      setUserOrdersLoading(false);
     }
   };
 
@@ -250,328 +292,488 @@ export default function Orders() {
     }
   };
 
-  // View order details
+  // View order details with user's all orders
   const viewOrderDetails = async (order) => {
     try {
       setSelectedOrder(order);
       setActionLoading(true);
       
+      // Get order details
       const res = await getOrderByIdAPI(order._id);
-      setOrderDetails(res?.data?.order || order);
+      const orderData = res?.data?.order || order;
+      setOrderDetails(orderData);
       
-      MySwal.fire({
-        title: <div className="text-xl font-bold" style={{ color: themeColors.text }}>Order Details</div>,
-        html: (
-          <div className="text-left space-y-6" style={{ color: themeColors.text }}>
-            {/* Order Header */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
-                <h3 className="font-bold text-lg mb-3 flex items-center">
-                  <FaReceipt className="mr-2" />
-                  Order Information
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="opacity-70">Order ID:</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono">{order._id?.substring(0, 10)}...</span>
-                      <button
-                        onClick={() => copyToClipboard(order._id)}
-                        className="p-1 rounded hover:opacity-80"
-                        style={{ backgroundColor: themeColors.primary + '20' }}
-                        title="Copy Order ID"
-                      >
-                        <FaCopy size={12} />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="opacity-70">Date:</span>
-                    <span>{order.createdAtIST || 'N/A'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="opacity-70">Order Type:</span>
-                    <div className="flex items-center">
-                      {order.store ? (
-                        <>
-                          <FaStore className="mr-1" />
-                          <span>Store Order</span>
-                        </>
-                      ) : (
-                        <>
-                          <FaGlobe className="mr-1" />
-                          <span>Global Order</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
-                <h3 className="font-bold text-lg mb-3 flex items-center">
-                  <FaUser className="mr-2" />
-                  Customer Information
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="opacity-70">Name:</span>
-                    <span className="font-medium">{order.user?.fullName || 'N/A'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="opacity-70">Mobile:</span>
-                    <div className="flex items-center gap-2">
-                      <FaPhone size={12} />
-                      <span>{order.user?.mobile || 'N/A'}</span>
-                    </div>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="opacity-70">Email:</span>
-                    <div className="flex items-center gap-2">
-                      <FaEnvelope size={12} />
-                      <span className="truncate">{order.user?.email || 'N/A'}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Order Items */}
+      // Fetch user's all orders
+      const userId = order.user?._id || order.user;
+      let userStats = null;
+      if (userId) {
+        userStats = await fetchUserOrders(userId);
+      }
+      
+      // Create modal content
+      const modalContent = (
+        <div className="text-left space-y-6" style={{ color: themeColors.text }}>
+          {/* Order Header */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
               <h3 className="font-bold text-lg mb-3 flex items-center">
-                <FaShoppingCart className="mr-2" />
-                Order Items ({order.items?.length || 0})
+                <FaReceipt className="mr-2" />
+                Order Information
               </h3>
-              <div className="space-y-3">
-                {order.items?.map((item, index) => (
-                  <div key={item._id || index} className="flex items-center gap-4 p-3 rounded-lg border" style={{ borderColor: themeColors.border }}>
-                    {item.images?.[0] && (
-                      <img
-                        src={item.images[0]}
-                        alt={item.name}
-                        className="w-16 h-16 rounded-lg object-cover"
-                        onError={(e) => {
-                          e.target.onerror = null;
-                          e.target.src = "https://via.placeholder.com/100?text=No+Image";
-                        }}
-                      />
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="opacity-70">Order ID:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono">{order._id?.substring(0, 10)}...</span>
+                    <button
+                      onClick={() => copyToClipboard(order._id)}
+                      className="p-1 rounded hover:opacity-80"
+                      style={{ backgroundColor: themeColors.primary + '20' }}
+                      title="Copy Order ID"
+                    >
+                      <FaCopy size={12} />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex justify-between">
+                  <span className="opacity-70">Date:</span>
+                  <span>{order.createdAtIST || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="opacity-70">Order Type:</span>
+                  <div className="flex items-center">
+                    {order.store ? (
+                      <>
+                        <FaStore className="mr-1" />
+                        <span>Store Order</span>
+                      </>
+                    ) : (
+                      <>
+                        <FaGlobe className="mr-1" />
+                        <span>Global Order</span>
+                      </>
                     )}
-                    <div className="flex-1">
-                      <div className="flex justify-between">
-                        <h4 className="font-medium">{item.name}</h4>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
+              <h3 className="font-bold text-lg mb-3 flex items-center">
+                <FaUser className="mr-2" />
+                Customer Information
+              </h3>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="opacity-70">Name:</span>
+                  <span className="font-medium">{order.user?.fullName || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="opacity-70">Mobile:</span>
+                  <div className="flex items-center gap-2">
+                    <FaPhone size={12} />
+                    <span>{order.user?.mobile || 'N/A'}</span>
+                  </div>
+                </div>
+                <div className="flex justify-between">
+                  <span className="opacity-70">Email:</span>
+                  <div className="flex items-center gap-2">
+                    <FaEnvelope size={12} />
+                    <span className="truncate">{order.user?.email || 'N/A'}</span>
+                  </div>
+                </div>
+                <div className="flex justify-between">
+                  <span className="opacity-70">User ID:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs">{order.user?._id?.substring(0, 10) || 'N/A'}...</span>
+                    {order.user?._id && (
+                      <button
+                        onClick={() => copyToClipboard(order.user._id)}
+                        className="p-1 rounded hover:opacity-80"
+                        style={{ backgroundColor: themeColors.primary + '20' }}
+                        title="Copy User ID"
+                      >
+                        <FaCopy size={10} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* User's Order History */}
+          {showUserOrders && (
+            <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
+              <h3 className="font-bold text-lg mb-3 flex items-center">
+                <FaHistory className="mr-2" />
+                User's Order History ({userOrders.length} orders)
+              </h3>
+              
+              {userOrdersLoading ? (
+                <div className="text-center py-4">
+                  <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2" style={{ borderColor: themeColors.primary }}></div>
+                  <p className="mt-2 text-sm opacity-70">Loading user orders...</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* User Order Stats */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div className="p-3 rounded-lg border text-center" style={{ borderColor: themeColors.border }}>
+                      <p className="text-xs opacity-70">Total Orders</p>
+                      <p className="text-xl font-bold">{userOrders.length}</p>
+                    </div>
+                    <div className="p-3 rounded-lg border text-center" style={{ borderColor: themeColors.border }}>
+                      <p className="text-xs opacity-70">Total Spent</p>
+                      <p className="text-xl font-bold">₹{userOrders.reduce((sum, o) => sum + (o.grandTotal || 0), 0).toLocaleString()}</p>
+                    </div>
+                    <div className="p-3 rounded-lg border text-center" style={{ borderColor: themeColors.border }}>
+                      <p className="text-xs opacity-70">Avg. Order</p>
+                      <p className="text-xl font-bold">₹{userOrders.length > 0 ? (userOrders.reduce((sum, o) => sum + (o.grandTotal || 0), 0) / userOrders.length).toFixed(0) : 0}</p>
+                    </div>
+                    <div className="p-3 rounded-lg border text-center" style={{ borderColor: themeColors.border }}>
+                      <p className="text-xs opacity-70">Current Order</p>
+                      <p className={`text-xs px-2 py-1 rounded-full inline-block ${getStatusColor(order.status).bg} ${getStatusColor(order.status).text}`}>
+                        {order.status}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* User Orders List */}
+                  <div className="max-h-60 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr style={{ backgroundColor: themeColors.background }}>
+                          <th className="text-left p-2 font-medium">Order ID</th>
+                          <th className="text-left p-2 font-medium">Date</th>
+                          <th className="text-left p-2 font-medium">Amount</th>
+                          <th className="text-left p-2 font-medium">Status</th>
+                          <th className="text-left p-2 font-medium">Type</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {userOrders.map((userOrder) => (
+                          <tr 
+                            key={userOrder._id} 
+                            className={`border-t ${userOrder._id === order._id ? 'bg-blue-50' : ''}`} 
+                            style={{ borderColor: themeColors.border }}
+                          >
+                            <td className="p-2">
+                              <div className="flex items-center gap-1">
+                                <span className="font-mono text-xs">{userOrder._id?.substring(0, 8)}...</span>
+                                {userOrder._id === order._id && (
+                                  <span className="text-xs px-1 py-0.5 bg-blue-100 text-blue-800 rounded">Current</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-2">
+                              {userOrder.createdAtIST?.split(',')[0]}
+                            </td>
+                            <td className="p-2 font-medium">
+                              ₹{userOrder.grandTotal}
+                            </td>
+                            <td className="p-2">
+                              <span className={`px-2 py-0.5 rounded-full text-xs ${getStatusColor(userOrder.status).bg} ${getStatusColor(userOrder.status).text}`}>
+                                {userOrder.status}
+                              </span>
+                            </td>
+                            <td className="p-2">
+                              {userOrder.store ? (
+                                <span className="text-xs flex items-center">
+                                  <FaStore size={10} className="mr-1" />
+                                  Store
+                                </span>
+                              ) : (
+                                <span className="text-xs flex items-center">
+                                  <FaGlobe size={10} className="mr-1" />
+                                  Global
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Order Items */}
+          <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
+            <h3 className="font-bold text-lg mb-3 flex items-center">
+              <FaShoppingCart className="mr-2" />
+              Order Items ({order.items?.length || 0})
+            </h3>
+            <div className="space-y-3">
+              {order.items?.map((item, index) => (
+                <div key={item._id || index} className="flex items-center gap-4 p-3 rounded-lg border" style={{ borderColor: themeColors.border }}>
+                  {item.images?.[0] && (
+                    <img
+                      src={item.images[0]}
+                      alt={item.name}
+                      className="w-16 h-16 rounded-lg object-cover"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = "https://via.placeholder.com/100?text=No+Image";
+                      }}
+                    />
+                  )}
+                  <div className="flex-1">
+                    <div className="flex justify-between">
+                      <h4 className="font-medium">{item.name}</h4>
+                      <div className="flex items-center gap-2">
+                        {item.percentageOff > 0 && (
+                          <span className="px-2 py-1 rounded-full text-xs" style={{ backgroundColor: '#10B98120', color: '#10B981' }}>
+                            <FaTag className="inline mr-1" />
+                            {item.percentageOff}% OFF
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-sm mt-2">
+                      <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          {item.percentageOff > 0 && (
-                            <span className="px-2 py-1 rounded-full text-xs" style={{ backgroundColor: '#10B98120', color: '#10B981' }}>
-                              <FaTag className="inline mr-1" />
-                              {item.percentageOff}% OFF
-                            </span>
-                          )}
+                          <span className="opacity-70">Quantity:</span>
+                          <span className="font-medium">{item.quantity} {item.unit}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="opacity-70">Price:</span>
+                          <div className="flex items-center gap-2">
+                            {item.offerPrice !== item.price ? (
+                              <>
+                                <span className="line-through opacity-70">₹{item.price}</span>
+                                <span className="font-bold text-green-600">₹{item.offerPrice}</span>
+                              </>
+                            ) : (
+                              <span className="font-medium">₹{item.price}</span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center justify-between text-sm mt-2">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="opacity-70">Quantity:</span>
-                            <span className="font-medium">{item.quantity} {item.unit}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="opacity-70">Price:</span>
-                            <div className="flex items-center gap-2">
-                              {item.offerPrice !== item.price ? (
-                                <>
-                                  <span className="line-through opacity-70">₹{item.price}</span>
-                                  <span className="font-bold text-green-600">₹{item.offerPrice}</span>
-                                </>
-                              ) : (
-                                <span className="font-medium">₹{item.price}</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="opacity-70 text-xs">Line Total</div>
-                          <div className="text-lg font-bold">₹{item.lineTotal || item.offerPrice * item.quantity}</div>
-                        </div>
+                      <div className="text-right">
+                        <div className="opacity-70 text-xs">Line Total</div>
+                        <div className="text-lg font-bold">₹{item.lineTotal || item.offerPrice * item.quantity}</div>
                       </div>
                     </div>
                   </div>
-                ))}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Order Summary */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
+              <h3 className="font-bold text-lg mb-3 flex items-center">
+                <FaRupeeSign className="mr-2" />
+                Price Summary
+              </h3>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="opacity-70">Subtotal:</span>
+                  <span>₹{order.subtotal}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="opacity-70">Total Discount:</span>
+                  <span className="text-green-600">-₹{order.totalDiscount}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t" style={{ borderColor: themeColors.border }}>
+                  <span className="font-bold">Grand Total:</span>
+                  <span className="text-xl font-bold">₹{order.grandTotal}</span>
+                </div>
               </div>
             </div>
 
-            {/* Order Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
-                <h3 className="font-bold text-lg mb-3 flex items-center">
-                  <FaRupeeSign className="mr-2" />
-                  Price Summary
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="opacity-70">Subtotal:</span>
-                    <span>₹{order.subtotal}</span>
+            <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
+              <h3 className="font-bold text-lg mb-3 flex items-center">
+                <FaClipboardCheck className="mr-2" />
+                Order Status
+              </h3>
+              <div className="space-y-4">
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="opacity-70">Order Status:</span>
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center ${getStatusColor(order.status).bg} ${getStatusColor(order.status).text}`}>
+                      {getStatusColor(order.status).icon}
+                      {order.status?.charAt(0).toUpperCase() + order.status?.slice(1)}
+                    </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="opacity-70">Total Discount:</span>
-                    <span className="text-green-600">-₹{order.totalDiscount}</span>
-                  </div>
-                  <div className="flex justify-between pt-2 border-t" style={{ borderColor: themeColors.border }}>
-                    <span className="font-bold">Grand Total:</span>
-                    <span className="text-xl font-bold">₹{order.grandTotal}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
-                <h3 className="font-bold text-lg mb-3 flex items-center">
-                  <FaClipboardCheck className="mr-2" />
-                  Order Status
-                </h3>
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="opacity-70">Order Status:</span>
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center ${getStatusColor(order.status).bg} ${getStatusColor(order.status).text}`}>
-                        {getStatusColor(order.status).icon}
-                        {order.status?.charAt(0).toUpperCase() + order.status?.slice(1)}
-                      </span>
-                    </div>
-                    <select
-                      id="swal-status-select"
-                      className="w-full p-2 rounded-lg border text-sm"
-                      style={{
-                        borderColor: themeColors.border,
-                        backgroundColor: themeColors.background,
-                        color: themeColors.text
-                      }}
-                      defaultValue={order.status}
-                      onChange={(e) => {
-                        const newStatus = e.target.value;
-                        MySwal.fire({
-                          title: 'Update Order Status',
-                          text: `Change status to ${newStatus}?`,
-                          icon: 'question',
-                          showCancelButton: true,
-                          confirmButtonText: 'Update',
-                          cancelButtonText: 'Cancel',
-                          confirmButtonColor: themeColors.primary,
-                          cancelButtonColor: themeColors.border,
-                          background: themeColors.background
-                        }).then(async (result) => {
-                          if (result.isConfirmed) {
-                            try {
-                              setActionLoading(true);
-                              await updateOrderStatusAPI(order._id, newStatus);
-                              toast.success(`Order status updated to ${newStatus}`);
-                              fetchOrders();
-                            } catch (err) {
-                              console.error("Error updating status:", err);
-                              toast.error("Failed to update status");
-                            } finally {
-                              setActionLoading(false);
+                  <select
+                    id="swal-status-select"
+                    className="w-full p-2 rounded-lg border text-sm"
+                    style={{
+                      borderColor: themeColors.border,
+                      backgroundColor: themeColors.background,
+                      color: themeColors.text
+                    }}
+                    defaultValue={order.status}
+                    onChange={(e) => {
+                      const newStatus = e.target.value;
+                      MySwal.fire({
+                        title: 'Update Order Status',
+                        text: `Change status to ${newStatus}?`,
+                        icon: 'question',
+                        showCancelButton: true,
+                        confirmButtonText: 'Update',
+                        cancelButtonText: 'Cancel',
+                        confirmButtonColor: themeColors.primary,
+                        cancelButtonColor: themeColors.border,
+                        background: themeColors.background
+                      }).then(async (result) => {
+                        if (result.isConfirmed) {
+                          try {
+                            setActionLoading(true);
+                            await updateOrderStatusAPI(order._id, newStatus);
+                            toast.success(`Order status updated to ${newStatus}`);
+                            fetchOrders();
+                            // Refresh user orders if showing
+                            if (showUserOrders && order.user?._id) {
+                              fetchUserOrders(order.user._id);
                             }
+                          } catch (err) {
+                            console.error("Error updating status:", err);
+                            toast.error("Failed to update status");
+                          } finally {
+                            setActionLoading(false);
                           }
-                        });
-                      }}
-                    >
-                      <option value="pending">Pending</option>
-                      <option value="confirmed">Confirmed</option>
-                      <option value="shipped">Shipped</option>
-                      <option value="delivered">Delivered</option>
-                      <option value="cancelled">Cancelled</option>
-                    </select>
-                  </div>
+                        }
+                      });
+                    }}
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="shipped">Shipped</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
                 </div>
               </div>
+            </div>
 
-              <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
-                <h3 className="font-bold text-lg mb-3 flex items-center">
-                  <FaCreditCard className="mr-2" />
-                  Payment Information
-                </h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="opacity-70">Method:</span>
-                    <div className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center bg-gray-100 text-gray-800`}>
-                      {getPaymentMethodIcon(order.paymentMethod)}
-                      {order.paymentMethod?.toUpperCase() || 'COD'}
-                    </div>
+            <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
+              <h3 className="font-bold text-lg mb-3 flex items-center">
+                <FaCreditCard className="mr-2" />
+                Payment Information
+              </h3>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="opacity-70">Method:</span>
+                  <div className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center bg-gray-100 text-gray-800`}>
+                    {getPaymentMethodIcon(order.paymentMethod)}
+                    {order.paymentMethod?.toUpperCase() || 'COD'}
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="opacity-70">Status:</span>
-                    <div className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center ${getPaymentStatusColor(order.paymentStatus).bg} ${getPaymentStatusColor(order.paymentStatus).text}`}>
-                      {getPaymentStatusColor(order.paymentStatus).icon}
-                      {order.paymentStatus?.charAt(0).toUpperCase() + order.paymentStatus?.slice(1)}
-                    </div>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="opacity-70">Status:</span>
+                  <div className={`px-3 py-1 rounded-full text-sm font-medium inline-flex items-center ${getPaymentStatusColor(order.paymentStatus).bg} ${getPaymentStatusColor(order.paymentStatus).text}`}>
+                    {getPaymentStatusColor(order.paymentStatus).icon}
+                    {order.paymentStatus?.charAt(0).toUpperCase() + order.paymentStatus?.slice(1)}
                   </div>
-                  {order.paymentStatus === 'pending' && (
-                    <button
-                      onClick={() => updatePaymentStatus(order, 'paid')}
-                      className="w-full py-2 rounded-lg text-sm font-medium transition-colors"
-                      style={{ backgroundColor: themeColors.primary, color: 'white' }}
-                    >
-                      Mark as Paid
-                    </button>
+                </div>
+                {order.paymentStatus === 'pending' && (
+                  <button
+                    onClick={() => updatePaymentStatus(order, 'paid')}
+                    className="w-full py-2 rounded-lg text-sm font-medium transition-colors"
+                    style={{ backgroundColor: themeColors.primary, color: 'white' }}
+                  >
+                    Mark as Paid
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Shipping Address */}
+          {order.shippingAddress && (
+            <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
+              <h3 className="font-bold text-lg mb-3 flex items-center">
+                <FaMapMarkerAlt className="mr-2" />
+                Shipping Address
+              </h3>
+              <div className="space-y-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="opacity-70 text-sm">Name</p>
+                    <p className="font-medium">{order.shippingAddress.fullName}</p>
+                  </div>
+                  <div>
+                    <p className="opacity-70 text-sm">Mobile</p>
+                    <p className="font-medium">{order.shippingAddress.mobile}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <p className="opacity-70 text-sm">Address</p>
+                    <p className="font-medium">
+                      {order.shippingAddress.addressLine1}, {order.shippingAddress.addressLine2}
+                    </p>
+                    <p className="font-medium">
+                      {order.shippingAddress.city}, {order.shippingAddress.state} - {order.shippingAddress.pincode}
+                    </p>
+                  </div>
+                  {order.shippingAddress.landmark && (
+                    <div className="md:col-span-2">
+                      <p className="opacity-70 text-sm">Landmark</p>
+                      <p className="font-medium">{order.shippingAddress.landmark}</p>
+                    </div>
                   )}
                 </div>
               </div>
             </div>
+          )}
 
-            {/* Shipping Address */}
-            {order.shippingAddress && (
-              <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
-                <h3 className="font-bold text-lg mb-3 flex items-center">
-                  <FaMapMarkerAlt className="mr-2" />
-                  Shipping Address
-                </h3>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <p className="opacity-70 text-sm">Name</p>
-                      <p className="font-medium">{order.shippingAddress.fullName}</p>
-                    </div>
-                    <div>
-                      <p className="opacity-70 text-sm">Mobile</p>
-                      <p className="font-medium">{order.shippingAddress.mobile}</p>
-                    </div>
-                    <div className="md:col-span-2">
-                      <p className="opacity-70 text-sm">Address</p>
-                      <p className="font-medium">
-                        {order.shippingAddress.addressLine1}, {order.shippingAddress.addressLine2}
-                      </p>
-                      <p className="font-medium">
-                        {order.shippingAddress.city}, {order.shippingAddress.state} - {order.shippingAddress.pincode}
-                      </p>
-                    </div>
-                    {order.shippingAddress.landmark && (
-                      <div className="md:col-span-2">
-                        <p className="opacity-70 text-sm">Landmark</p>
-                        <p className="font-medium">{order.shippingAddress.landmark}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+          {/* Notes */}
+          {order.notes && (
+            <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
+              <h3 className="font-bold text-lg mb-3 flex items-center">
+                <FaExclamationTriangle className="mr-2" />
+                Order Notes
+              </h3>
+              <p className="p-3 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.background }}>
+                {order.notes}
+              </p>
+            </div>
+          )}
 
-            {/* Notes */}
-            {order.notes && (
-              <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
-                <h3 className="font-bold text-lg mb-3 flex items-center">
-                  <FaExclamationTriangle className="mr-2" />
-                  Order Notes
-                </h3>
-                <p className="p-3 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.background }}>
-                  {order.notes}
-                </p>
-              </div>
-            )}
+          {/* Action Buttons */}
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => {
+                setShowUserOrders(false);
+                MySwal.close();
+              }}
+              className="px-4 py-2 rounded-lg border text-sm font-medium"
+              style={{
+                borderColor: themeColors.border,
+                backgroundColor: themeColors.background,
+                color: themeColors.text
+              }}
+            >
+              Close
+            </button>
+            <button
+              onClick={() => printOrder(order)}
+              className="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+              style={{ backgroundColor: themeColors.primary, color: 'white' }}
+            >
+              <FaPrint size={14} />
+              Print Invoice
+            </button>
           </div>
-        ),
+        </div>
+      );
+
+      MySwal.fire({
+        title: <div className="text-xl font-bold" style={{ color: themeColors.text }}>Order Details</div>,
+        html: modalContent,
         showConfirmButton: false,
         showCloseButton: true,
-        width: '800px',
+        width: '900px',
         background: themeColors.background,
+        didClose: () => {
+          setShowUserOrders(false);
+          setUserOrders([]);
+        }
       });
     } catch (err) {
       console.error("Error fetching order details:", err);

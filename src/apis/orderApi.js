@@ -45,6 +45,10 @@ export const getOrderStatsAPI = () => {
   return http.get(`/api/orders/stats`);
 };
 
+export const getUserOrdersAPI = (userId) => {
+  return http.get(`/api/orders/my?userId=${userId}`);
+};
+
 export default {
   getAllOrdersAPI,
   getGlobalOrdersAPI,
