@@ -13,7 +13,8 @@ import {
   FaReceipt,
   FaMotorcycle,
   FaUserTie,
-  FaTruck
+  FaTruck,
+  FaMobile
 } from "react-icons/fa";
 
 const AdminDashboard = lazy(() => import("../pages/AdminDashboard"));
@@ -26,6 +27,7 @@ const Products = lazy(() => import("../pages/Products"));
 const Stores = lazy(() => import("../pages/Stores"));
 const Orders = lazy(() => import("../pages/Orders"));
 const DeliveryBoys = lazy(() => import("../pages/DeliveryBoys"));
+const AppVersions = lazy(() => import("../pages/AppVersions"));
 
 const routes = [
   {
@@ -91,6 +93,12 @@ const routes = [
     component: OfferTexts,
     name: "Offer Texts",
     icon: FaFont,
+  },
+  {
+    path: "/app-versions",
+    component: AppVersions,
+    name: "App Versions",
+    icon: FaMobile,
   },
 ];
 
