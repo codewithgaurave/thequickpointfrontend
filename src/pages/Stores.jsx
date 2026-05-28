@@ -46,6 +46,7 @@ import {
   deleteStoreAPI,
   getStoreProductsAPI
 } from "../apis/storeApi";
+import LocationPicker from "../components/LocationPicker";
 
 const MySwal = withReactContent(Swal);
 
@@ -455,7 +456,9 @@ export default function Stores() {
             </h3>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <LocationPicker isEdit={false} />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: themeColors.text }}>
                 Latitude *
@@ -464,11 +467,11 @@ export default function Stores() {
                 id="swal-latitude"
                 type="number"
                 step="any"
-                className="w-full p-2 rounded-lg border"
+                readOnly
+                className="w-full p-2 rounded-lg border bg-gray-100"
                 placeholder="e.g., 19.0760"
                 style={{
                   borderColor: themeColors.border,
-                  backgroundColor: themeColors.background,
                   color: themeColors.text
                 }}
               />
@@ -482,11 +485,11 @@ export default function Stores() {
                 id="swal-longitude"
                 type="number"
                 step="any"
-                className="w-full p-2 rounded-lg border"
+                readOnly
+                className="w-full p-2 rounded-lg border bg-gray-100"
                 placeholder="e.g., 72.8777"
                 style={{
                   borderColor: themeColors.border,
-                  backgroundColor: themeColors.background,
                   color: themeColors.text
                 }}
               />
@@ -950,7 +953,60 @@ export default function Stores() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="p-3 rounded-lg border mb-4 mt-6" style={{ borderColor: themeColors.border, backgroundColor: themeColors.background + '20' }}>
+            <h3 className="font-bold mb-2 flex items-center gap-2" style={{ color: themeColors.text }}>
+              <FaMapMarkerAlt /> Location Details
+            </h3>
+          </div>
+
+          <LocationPicker 
+            isEdit={true} 
+            defaultLocation={
+              store?.location?.latitude && store?.location?.longitude
+                ? { lat: Number(store.location.latitude), lng: Number(store.location.longitude) }
+                : null
+            } 
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: themeColors.text }}>
+                Latitude *
+              </label>
+              <input
+                id="swal-edit-latitude"
+                type="number"
+                step="any"
+                readOnly
+                className="w-full p-2 rounded-lg border bg-gray-100"
+                defaultValue={store?.location?.latitude || ''}
+                style={{
+                  borderColor: themeColors.border,
+                  color: themeColors.text
+                }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: themeColors.text }}>
+                Longitude *
+              </label>
+              <input
+                id="swal-edit-longitude"
+                type="number"
+                step="any"
+                readOnly
+                className="w-full p-2 rounded-lg border bg-gray-100"
+                defaultValue={store?.location?.longitude || ''}
+                style={{
+                  borderColor: themeColors.border,
+                  color: themeColors.text
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: themeColors.text }}>
                 Address *
@@ -968,6 +1024,78 @@ export default function Stores() {
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: themeColors.text }}>
+                City *
+              </label>
+              <input
+                id="swal-edit-city"
+                type="text"
+                className="w-full p-2 rounded-lg border"
+                defaultValue={store?.location?.city || ''}
+                style={{
+                  borderColor: themeColors.border,
+                  backgroundColor: themeColors.background,
+                  color: themeColors.text
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: themeColors.text }}>
+                State *
+              </label>
+              <input
+                id="swal-edit-state"
+                type="text"
+                className="w-full p-2 rounded-lg border"
+                defaultValue={store?.location?.state || ''}
+                style={{
+                  borderColor: themeColors.border,
+                  backgroundColor: themeColors.background,
+                  color: themeColors.text
+                }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: themeColors.text }}>
+                Pincode *
+              </label>
+              <input
+                id="swal-edit-pincode"
+                type="text"
+                className="w-full p-2 rounded-lg border"
+                defaultValue={store?.location?.pincode || ''}
+                style={{
+                  borderColor: themeColors.border,
+                  backgroundColor: themeColors.background,
+                  color: themeColors.text
+                }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: themeColors.text }}>
+                Country *
+              </label>
+              <input
+                id="swal-edit-country"
+                type="text"
+                className="w-full p-2 rounded-lg border"
+                defaultValue={store?.location?.country || 'India'}
+                style={{
+                  borderColor: themeColors.border,
+                  backgroundColor: themeColors.background,
+                  color: themeColors.text
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: themeColors.text }}>
                 Opening Hours *
@@ -1080,6 +1208,12 @@ export default function Stores() {
         const storeName = document.getElementById('swal-edit-storeName').value.trim();
         const storeCode = document.getElementById('swal-edit-storeCode').value.trim();
         const address = document.getElementById('swal-edit-address').value.trim();
+        const latitude = document.getElementById('swal-edit-latitude').value;
+        const longitude = document.getElementById('swal-edit-longitude').value;
+        const city = document.getElementById('swal-edit-city').value.trim();
+        const state = document.getElementById('swal-edit-state').value.trim();
+        const pincode = document.getElementById('swal-edit-pincode').value.trim();
+        const country = document.getElementById('swal-edit-country').value.trim();
         const openingHours = document.getElementById('swal-edit-openingHours').value.trim();
         const managerPhone = document.getElementById('swal-edit-managerPhone').value.trim();
         const notes = document.getElementById('swal-edit-notes').value.trim();
@@ -1118,6 +1252,12 @@ export default function Stores() {
           formData.append('storeName', storeName);
           formData.append('storeCode', storeCode);
           formData.append('address', address);
+          if (latitude) formData.append('latitude', latitude);
+          if (longitude) formData.append('longitude', longitude);
+          if (city) formData.append('city', city);
+          if (state) formData.append('state', state);
+          if (pincode) formData.append('pincode', pincode);
+          if (country) formData.append('country', country);
           formData.append('openingHours', openingHours);
           formData.append('managerPhone', managerPhone);
           if (notes) formData.append('notes', notes);
