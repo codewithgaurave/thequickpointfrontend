@@ -408,19 +408,22 @@ export default function Orders() {
                 <span className="opacity-70">Date:</span>
                 <span>{order.createdAtIST || 'N/A'}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="opacity-70">Order Type:</span>
-                <div className="flex items-center">
+              <div className="flex justify-between items-start">
+                <span className="opacity-70 mt-1">Order Type:</span>
+                <div className="flex flex-col items-end">
                   {order.store ? (
                     <>
-                      <FaStore className="mr-1" />
-                      <span>Store Order</span>
+                      <div className="flex items-center">
+                        <FaStore className="mr-1 text-blue-500" />
+                        <span className="font-medium text-blue-600">Store Order</span>
+                      </div>
+                      <span className="text-sm font-semibold mt-1">{order.store.storeName}</span>
                     </>
                   ) : (
-                    <>
-                      <FaGlobe className="mr-1" />
-                      <span>Global Order</span>
-                    </>
+                    <div className="flex items-center mt-1">
+                      <FaGlobe className="mr-1 text-green-500" />
+                      <span className="font-medium text-green-600">Global Order</span>
+                    </div>
                   )}
                 </div>
               </div>
@@ -989,62 +992,143 @@ export default function Orders() {
   // Print order summary
   const printOrder = (order) => {
     const printWindow = window.open('', '_blank');
+    const shipping = order.shippingAddress || {};
     printWindow.document.write(`
       <html>
         <head>
           <title>Order Invoice - ${order._id}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            .invoice { max-width: 800px; margin: 0 auto; }
-            .header { text-align: center; margin-bottom: 30px; }
-            .section { margin-bottom: 20px; }
-            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-            .total { font-size: 1.2em; font-weight: bold; }
-            .item { border-bottom: 1px solid #eee; padding: 10px 0; }
+            body { font-family: 'Inter', sans-serif; padding: 40px 20px; background-color: #f9fafb; color: #111827; }
+            .invoice { max-width: 850px; margin: 0 auto; background: white; padding: 40px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border-radius: 8px; }
+            .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; border-bottom: 2px solid #f3f4f6; padding-bottom: 20px; }
+            .header-left img { max-height: 60px; margin-bottom: 10px; }
+            .header-left h1 { margin: 0; font-size: 24px; color: #4F46E5; letter-spacing: -0.5px; }
+            .header-right { text-align: right; }
+            .header-right h2 { margin: 0 0 5px 0; font-size: 28px; color: #374151; }
+            .header-right p { margin: 2px 0; color: #6B7280; font-size: 14px; }
+            .section-title { font-size: 16px; font-weight: 600; color: #374151; margin-bottom: 15px; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 30px; }
+            .info-box p { margin: 4px 0; font-size: 14px; line-height: 1.5; color: #4b5563; }
+            .info-box strong { color: #111827; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+            th { background-color: #f9fafb; text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
+            td { padding: 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
+            .text-right { text-align: right; }
+            .summary { width: 350px; margin-left: auto; }
+            .summary-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; }
+            .summary-row.total { font-size: 18px; font-weight: 700; border-top: 2px solid #e5e7eb; padding-top: 12px; margin-top: 10px; color: #111827; }
+            .badge { display: inline-block; padding: 4px 8px; border-radius: 9999px; font-size: 12px; font-weight: 500; }
+            .badge-paid { background-color: #d1fae5; color: #065f46; }
+            .badge-pending { background-color: #fef3c7; color: #92400e; }
+            .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 20px; }
+            .no-print-btns { display: flex; justify-content: center; gap: 15px; margin-top: 30px; }
+            .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s; }
+            .btn-primary { background-color: #4F46E5; color: white; }
+            .btn-primary:hover { background-color: #4338ca; }
+            .btn-secondary { background-color: #e5e7eb; color: #374151; }
+            .btn-secondary:hover { background-color: #d1d5db; }
             @media print {
-              .no-print { display: none; }
+              body { background-color: white; padding: 0; }
+              .invoice { box-shadow: none; padding: 0; max-width: 100%; }
+              .no-print-btns { display: none; }
             }
           </style>
         </head>
         <body>
           <div class="invoice">
             <div class="header">
-              <h1>Order Invoice</h1>
-              <p>Date: ${order.createdAtIST}</p>
-              <p>Order ID: ${order._id}</p>
+              <div class="header-left">
+                <h1 style="display:flex; align-items:center; gap:8px;">
+                  <span style="background:#4F46E5; color:white; padding:4px 8px; border-radius:4px;">QP</span>
+                  QuickPoint
+                </h1>
+                <p style="margin-top:5px; color:#6b7280; font-size:14px;">Fast & Reliable Delivery</p>
+                ${order.store ? `<p style="margin-top:2px; font-size:13px; font-weight:600; color:#374151;">Store: ${order.store.storeName}</p>` : ''}
+              </div>
+              <div class="header-right">
+                <h2>INVOICE</h2>
+                <p><strong>Order ID:</strong> ${order._id}</p>
+                <p><strong>Date:</strong> ${order.createdAtIST || new Date().toLocaleString()}</p>
+                <p><strong>Status:</strong> ${order.status.toUpperCase()}</p>
+              </div>
             </div>
-            <div class="section">
-              <h3>Customer Information</h3>
-              <p>Name: ${order.user?.fullName}</p>
-              <p>Mobile: ${order.user?.mobile}</p>
-              <p>Email: ${order.user?.email}</p>
+
+            <div class="grid">
+              <div class="info-box">
+                <div class="section-title">Customer Information</div>
+                <p><strong>${order.user?.fullName || 'N/A'}</strong></p>
+                <p>${order.user?.mobile || 'N/A'}</p>
+                <p>${order.user?.email || 'N/A'}</p>
+              </div>
+              <div class="info-box">
+                <div class="section-title">Shipping Address</div>
+                <p><strong>${shipping.fullName || order.user?.fullName || 'N/A'}</strong></p>
+                <p>${shipping.addressLine1 || ''} ${shipping.addressLine2 || ''}</p>
+                <p>${shipping.city || ''}, ${shipping.state || ''} - ${shipping.pincode || ''}</p>
+                <p>${shipping.mobile ? 'Phone: ' + shipping.mobile : ''}</p>
+              </div>
             </div>
-            <div class="section">
-              <h3>Order Items</h3>
-              ${order.items?.map(item => `
-                <div class="item">
-                  <p><strong>${item.name}</strong> (${item.quantity} ${item.unit})</p>
-                  <p>Price: ₹${item.offerPrice} each (₹${item.lineTotal} total)</p>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Item Description</th>
+                  <th class="text-right">Qty</th>
+                  <th class="text-right">Unit Price</th>
+                  <th class="text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${order.items?.map(item => `
+                  <tr>
+                    <td>
+                      <div style="font-weight: 500; color: #111827;">${item.name}</div>
+                      ${item.offerPrice < item.price ? `<div style="font-size: 12px; color: #10b981;">Includes discount on MRP ₹${item.price}</div>` : ''}
+                    </td>
+                    <td class="text-right">${item.quantity} ${item.unit}</td>
+                    <td class="text-right">₹${item.offerPrice}</td>
+                    <td class="text-right font-medium">₹${item.lineTotal || (item.offerPrice * item.quantity)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+
+            <div class="grid">
+              <div class="info-box">
+                <div class="section-title">Payment Information</div>
+                <p><strong>Method:</strong> ${order.paymentMethod?.toUpperCase()}</p>
+                <p><strong>Status:</strong> 
+                  <span class="badge ${order.paymentStatus === 'paid' ? 'badge-paid' : 'badge-pending'}">
+                    ${order.paymentStatus?.toUpperCase()}
+                  </span>
+                </p>
+              </div>
+              
+              <div class="summary">
+                <div class="summary-row">
+                  <span>Subtotal</span>
+                  <span>₹${order.subtotal}</span>
                 </div>
-              `).join('')}
-            </div>
-            <div class="section grid">
-              <div>
-                <h3>Order Summary</h3>
-                <p>Subtotal: ₹${order.subtotal}</p>
-                <p>Discount: -₹${order.totalDiscount}</p>
-                <p class="total">Grand Total: ₹${order.grandTotal}</p>
-              </div>
-              <div>
-                <h3>Status</h3>
-                <p>Order Status: ${order.status}</p>
-                <p>Payment Status: ${order.paymentStatus}</p>
-                <p>Payment Method: ${order.paymentMethod}</p>
+                <div class="summary-row" style="color: #10b981;">
+                  <span>Discount</span>
+                  <span>-₹${order.totalDiscount}</span>
+                </div>
+                <div class="summary-row total">
+                  <span>Grand Total</span>
+                  <span>₹${order.grandTotal}</span>
+                </div>
               </div>
             </div>
-            <div class="section no-print">
-              <button onclick="window.print()">Print Invoice</button>
-              <button onclick="window.close()">Close</button>
+
+            <div class="footer">
+              <p>Thank you for shopping with QuickPoint!</p>
+              <p>If you have any questions about this invoice, please contact support.</p>
+            </div>
+
+            <div class="no-print-btns">
+              <button class="btn btn-secondary" onclick="window.close()">Close</button>
+              <button class="btn btn-primary" onclick="window.print()">Print Invoice</button>
             </div>
           </div>
         </body>
@@ -1314,9 +1398,9 @@ export default function Orders() {
                           </p>
                           <div className="flex items-center gap-1 mt-1">
                             {order.store ? (
-                              <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800 inline-flex items-center">
+                              <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800 inline-flex items-center" title={order.store.storeName}>
                                 <FaStore size={10} className="mr-1" />
-                                Store
+                                {order.store.storeName.length > 15 ? order.store.storeName.substring(0, 15) + '...' : order.store.storeName}
                               </span>
                             ) : (
                               <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-800 inline-flex items-center">
