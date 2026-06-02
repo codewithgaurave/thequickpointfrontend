@@ -73,6 +73,7 @@ export default function Orders() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [storeFilter, setStoreFilter] = useState("all");
   const [sortBy, setSortBy] = useState("date_desc");
   
   // Stats
@@ -271,6 +272,11 @@ export default function Orders() {
         result = result.filter(order => order.store);
       }
     }
+
+    // Apply store filter
+    if (storeFilter !== "all") {
+      result = result.filter(order => order.store && order.store._id === storeFilter);
+    }
     
     // Apply sorting
     result.sort((a, b) => {
@@ -289,7 +295,7 @@ export default function Orders() {
     });
     
     setFilteredOrders(result);
-  }, [search, statusFilter, paymentStatusFilter, typeFilter, sortBy, orders]);
+  }, [search, statusFilter, paymentStatusFilter, typeFilter, storeFilter, sortBy, orders]);
 
   // Get status badge color
   const getStatusColor = (status) => {
@@ -1137,6 +1143,14 @@ export default function Orders() {
     printWindow.document.close();
   };
 
+  const uniqueStores = Array.from(
+    new Map(
+      orders
+        .filter(order => order.store && order.store._id)
+        .map(order => [order.store._id, order.store])
+    ).values()
+  );
+
   return (
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
@@ -1333,6 +1347,24 @@ export default function Orders() {
             <option value="all">All Types</option>
             <option value="global">Global Orders</option>
             <option value="store">Store Orders</option>
+          </select>
+
+          <select
+            value={storeFilter}
+            onChange={(e) => setStoreFilter(e.target.value)}
+            className="px-3 py-2 rounded-lg border text-sm"
+            style={{
+              borderColor: themeColors.border,
+              backgroundColor: themeColors.background,
+              color: themeColors.text
+            }}
+          >
+            <option value="all">All Stores</option>
+            {uniqueStores.map(store => (
+              <option key={store._id} value={store._id}>
+                {store.storeName}
+              </option>
+            ))}
           </select>
 
           <select
