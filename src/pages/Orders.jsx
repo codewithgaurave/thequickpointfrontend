@@ -358,6 +358,69 @@ export default function Orders() {
     }
   };
 
+  // Open quick assignment modal directly from table row click
+  const openQuickAssignModal = (order) => {
+    MySwal.fire({
+      title: <div style={{ color: themeColors.text }} className="text-xl font-bold">Quick Assign Driver</div>,
+      html: (
+        <div style={{ color: themeColors.text }} className="text-left space-y-4 py-2">
+          <p className="text-sm opacity-90">
+            Select an active driver to assign to <strong>Order #{order._id?.substring(0, 10)}...</strong>
+          </p>
+          <div>
+            <label className="block text-xs font-medium mb-1 opacity-70">Active Drivers</label>
+            <select
+              id="swal-quick-driver-select"
+              className="w-full p-2.5 rounded-lg border text-sm"
+              style={{
+                borderColor: themeColors.border,
+                backgroundColor: themeColors.background,
+                color: themeColors.text
+              }}
+              defaultValue={order.deliveryBoy?._id || ""}
+            >
+              <option value="">-- Select Driver --</option>
+              {deliveryBoys.map(boy => (
+                <option key={boy._id} value={boy._id}>
+                  {boy.name} ({boy.phone})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      ),
+      showCancelButton: true,
+      confirmButtonText: 'Assign Driver',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: themeColors.primary,
+      cancelButtonColor: themeColors.border,
+      background: themeColors.background,
+      preConfirm: () => {
+        const selectEl = document.getElementById("swal-quick-driver-select");
+        const selectedId = selectEl ? selectEl.value : "";
+        if (!selectedId) {
+          Swal.showValidationMessage('Please select a driver to assign');
+          return false;
+        }
+        return selectedId;
+      }
+    }).then(async (result) => {
+      if (result.isConfirmed && result.value) {
+        try {
+          setActionLoading(true);
+          const response = await assignOrderDeliveryAPI(order._id, result.value);
+          toast.success(response.data?.message || 'Driver assigned successfully');
+          fetchOrders();
+        } catch (err) {
+          console.error("Error quick assigning driver:", err);
+          toast.error(err.response?.data?.message || "Failed to assign driver");
+        } finally {
+          setActionLoading(false);
+        }
+      }
+    });
+  };
+
   // View order details with user's all orders - FIXED VERSION
   const viewOrderDetails = async (order) => {
     try {
@@ -1577,15 +1640,29 @@ export default function Orders() {
                           {order.status?.charAt(0).toUpperCase() + order.status?.slice(1)}
                         </span>
                         {order.deliveryBoy ? (
-                          <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 font-medium rounded border border-blue-100 flex items-center gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openQuickAssignModal(order);
+                            }}
+                            className="text-[10px] px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium rounded border border-blue-100 flex items-center gap-1 cursor-pointer transition-colors"
+                            title="Click to reassign driver"
+                          >
                             <FaTruck size={8} />
                             {order.deliveryBoy.name}
-                          </span>
+                          </button>
                         ) : (
-                          <span className="text-[10px] px-1.5 py-0.5 bg-gray-50 text-gray-500 font-medium rounded border border-gray-200 flex items-center gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openQuickAssignModal(order);
+                            }}
+                            className="text-[10px] px-1.5 py-0.5 bg-gray-50 hover:bg-gray-100 text-gray-500 font-medium rounded border border-gray-200 flex items-center gap-1 cursor-pointer transition-colors"
+                            title="Click to assign driver"
+                          >
                             <FaUser size={8} />
                             Unassigned
-                          </span>
+                          </button>
                         )}
                       </div>
                     </td>
