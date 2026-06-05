@@ -52,8 +52,10 @@ import {
   updatePaymentStatusAPI,
   deleteOrderAPI,
   getOrderStatsAPI,
-  getUserOrdersAPI
+  getUserOrdersAPI,
+  assignOrderDeliveryAPI
 } from "../apis/orderApi";
+import { getAllDeliveryBoysAPI } from "../apis/deliveryBoyApi";
 
 const MySwal = withReactContent(Swal);
 
@@ -68,6 +70,7 @@ export default function Orders() {
   const [orderDetails, setOrderDetails] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [deliveryBoys, setDeliveryBoys] = useState([]);
   
   // Filter states
   const [statusFilter, setStatusFilter] = useState("all");
@@ -123,6 +126,17 @@ export default function Orders() {
       setFilteredOrders([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch active delivery boys for order assignment
+  const fetchDeliveryBoys = async () => {
+    try {
+      const res = await getAllDeliveryBoysAPI();
+      const activeBoys = (res?.data?.list || []).filter(boy => boy.isActive);
+      setDeliveryBoys(activeBoys);
+    } catch (err) {
+      console.error("Error fetching delivery boys for select:", err);
     }
   };
 
@@ -233,6 +247,7 @@ export default function Orders() {
 
   useEffect(() => {
     fetchOrders();
+    fetchDeliveryBoys();
   }, []);
 
   // Apply filters and sorting
@@ -647,7 +662,7 @@ export default function Orders() {
         </div>
 
         {/* Order Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
             <h3 className="font-bold text-lg mb-3 flex items-center">
               <FaRupeeSign className="mr-2" />
@@ -764,6 +779,90 @@ export default function Orders() {
                   Mark as Paid
                 </button>
               )}
+            </div>
+          </div>
+
+          <div className="p-4 rounded-lg border" style={{ borderColor: themeColors.border, backgroundColor: themeColors.surface }}>
+            <h3 className="font-bold text-lg mb-3 flex items-center">
+              <FaTruck className="mr-2" />
+              Delivery Assignment
+            </h3>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="opacity-70">Assigned Driver:</span>
+                <span className={`px-2 py-0.5 rounded text-xs font-semibold inline-flex items-center ${order.deliveryBoy ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                  {order.deliveryBoy?.name || 'Not Assigned'}
+                </span>
+              </div>
+              {order.deliveryBoy?.phone && (
+                <div className="flex justify-between items-center text-xs">
+                  <span className="opacity-70">Phone:</span>
+                  <span className="font-mono">{order.deliveryBoy.phone}</span>
+                </div>
+              )}
+              <div className="pt-2 border-t" style={{ borderColor: themeColors.border }}>
+                <label className="block text-xs opacity-75 mb-1">Assign / Change Driver</label>
+                <select
+                  id="swal-driver-select"
+                  className="w-full p-2 rounded-lg border text-sm"
+                  style={{
+                    borderColor: themeColors.border,
+                    backgroundColor: themeColors.background,
+                    color: themeColors.text
+                  }}
+                  defaultValue={order.deliveryBoy?._id || ""}
+                  onChange={(e) => {
+                    const newDriverId = e.target.value;
+                    if (!newDriverId) return;
+                    const selectedBoy = deliveryBoys.find(b => b._id === newDriverId);
+                    const driverName = selectedBoy ? selectedBoy.name : 'this driver';
+                    
+                    MySwal.fire({
+                      title: 'Assign Driver',
+                      text: `Assign ${driverName} to this order?`,
+                      icon: 'question',
+                      showCancelButton: true,
+                      confirmButtonText: 'Assign',
+                      cancelButtonText: 'Cancel',
+                      confirmButtonColor: themeColors.primary,
+                      cancelButtonColor: themeColors.border,
+                      background: themeColors.background
+                    }).then(async (result) => {
+                      if (result.isConfirmed) {
+                        try {
+                          setActionLoading(true);
+                          const response = await assignOrderDeliveryAPI(order._id, newDriverId);
+                          toast.success(response.data?.message || 'Driver assigned successfully');
+                          fetchOrders();
+                          MySwal.close();
+                          
+                          // Re-fetch details to open updated modal
+                          const refreshedRes = await getOrderByIdAPI(order._id);
+                          const updatedOrder = refreshedRes?.data?.order || order;
+                          viewOrderDetails(updatedOrder);
+                        } catch (err) {
+                          console.error("Error assigning driver:", err);
+                          toast.error(err.response?.data?.message || "Failed to assign driver");
+                          const selectEl = document.getElementById("swal-driver-select");
+                          if (selectEl) selectEl.value = order.deliveryBoy?._id || "";
+                        } finally {
+                          setActionLoading(false);
+                        }
+                      } else {
+                        const selectEl = document.getElementById("swal-driver-select");
+                        if (selectEl) selectEl.value = order.deliveryBoy?._id || "";
+                      }
+                    });
+                  }}
+                >
+                  <option value="">-- Assign Driver --</option>
+                  {deliveryBoys.map(boy => (
+                    <option key={boy._id} value={boy._id}>
+                      {boy.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -1472,10 +1571,23 @@ export default function Orders() {
                       </div>
                     </td>
                     <td className="p-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium inline-flex items-center ${getStatusColor(order.status).bg} ${getStatusColor(order.status).text}`}>
-                        {getStatusColor(order.status).icon}
-                        {order.status?.charAt(0).toUpperCase() + order.status?.slice(1)}
-                      </span>
+                      <div className="flex flex-col gap-1.5 items-start">
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium inline-flex items-center ${getStatusColor(order.status).bg} ${getStatusColor(order.status).text}`}>
+                          {getStatusColor(order.status).icon}
+                          {order.status?.charAt(0).toUpperCase() + order.status?.slice(1)}
+                        </span>
+                        {order.deliveryBoy ? (
+                          <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 font-medium rounded border border-blue-100 flex items-center gap-1">
+                            <FaTruck size={8} />
+                            {order.deliveryBoy.name}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-1.5 py-0.5 bg-gray-50 text-gray-500 font-medium rounded border border-gray-200 flex items-center gap-1">
+                            <FaUser size={8} />
+                            Unassigned
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-4">
                       <div className="space-y-1">

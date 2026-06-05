@@ -49,6 +49,11 @@ export const getUserOrdersAPI = (userId) => {
   return http.get(`/api/orders/my?userId=${userId}`);
 };
 
+// Assign delivery boy to order
+export const assignOrderDeliveryAPI = (orderId, deliveryBoyId) => {
+  return http.patch(`/api/orders/${orderId}/assign-delivery`, { deliveryBoyId });
+};
+
 export default {
   getAllOrdersAPI,
   getGlobalOrdersAPI,
@@ -58,4 +63,6 @@ export default {
   updatePaymentStatusAPI,
   deleteOrderAPI,
   getOrderStatsAPI,
+  getUserOrdersAPI,
+  assignOrderDeliveryAPI,
 };
