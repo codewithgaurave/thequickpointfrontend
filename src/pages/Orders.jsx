@@ -421,6 +421,63 @@ export default function Orders() {
     });
   };
 
+  // Open quick status change modal directly from table Actions click
+  const openQuickStatusModal = (order) => {
+    MySwal.fire({
+      title: <div style={{ color: themeColors.text }} className="text-xl font-bold">Update Order Status</div>,
+      html: (
+        <div style={{ color: themeColors.text }} className="text-left space-y-4 py-2">
+          <p className="text-sm opacity-90">
+            Select a new status for <strong>Order #{order._id?.substring(0, 10)}...</strong>
+          </p>
+          <div>
+            <label className="block text-xs font-medium mb-1 opacity-70">Order Status</label>
+            <select
+              id="swal-quick-status-select"
+              className="w-full p-2.5 rounded-lg border text-sm"
+              style={{
+                borderColor: themeColors.border,
+                backgroundColor: themeColors.background,
+                color: themeColors.text
+              }}
+              defaultValue={order.status}
+            >
+              <option value="pending">Pending</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="shipped">Shipped</option>
+              <option value="delivered">Delivered</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        </div>
+      ),
+      showCancelButton: true,
+      confirmButtonText: 'Update Status',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: themeColors.primary,
+      cancelButtonColor: themeColors.border,
+      background: themeColors.background,
+      preConfirm: () => {
+        const selectEl = document.getElementById("swal-quick-status-select");
+        return selectEl ? selectEl.value : "";
+      }
+    }).then(async (result) => {
+      if (result.isConfirmed && result.value) {
+        try {
+          setActionLoading(true);
+          await updateOrderStatusAPI(order._id, result.value);
+          toast.success(`Order status updated to ${result.value}`);
+          fetchOrders();
+        } catch (err) {
+          console.error("Error updating status:", err);
+          toast.error("Failed to update status");
+        } finally {
+          setActionLoading(false);
+        }
+      }
+    });
+  };
+
   // View order details with user's all orders - FIXED VERSION
   const viewOrderDetails = async (order) => {
     try {
@@ -1161,143 +1218,317 @@ export default function Orders() {
   const printOrder = (order) => {
     const printWindow = window.open('', '_blank');
     const shipping = order.shippingAddress || {};
+    
+    // Renders invoice copy markup
+    const getInvoiceHTML = (copyLabel) => `
+      <div class="invoice-container">
+        <div class="copy-label">${copyLabel}</div>
+        <div class="header">
+          <div class="header-left">
+            <h1 style="display:flex; align-items:center; gap:6px; font-weight:700;">
+              <span style="background:#4F46E5; color:white; padding:3px 6px; border-radius:4px; font-size:16px;">QP</span>
+              QuickPoint
+            </h1>
+            <p style="margin-top:3px; margin-bottom:0; color:#6b7280; font-size:11px;">Fast & Reliable Delivery</p>
+            ${order.store ? `<p style="margin-top:2px; margin-bottom:0; font-size:10px; font-weight:600; color:#374151;">Store: ${order.store.storeName}</p>` : ''}
+          </div>
+          <div class="header-right">
+            <h2>INVOICE</h2>
+            <p><strong>Order ID:</strong> ${order._id}</p>
+            <p><strong>Date:</strong> ${order.createdAtIST || new Date().toLocaleString()}</p>
+            <p><strong>Status:</strong> ${order.status.toUpperCase()}</p>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="info-box">
+            <div class="section-title">Customer Information</div>
+            <p><strong>${order.user?.fullName || 'N/A'}</strong></p>
+            <p>${order.user?.mobile || 'N/A'}</p>
+            <p>${order.user?.email || 'N/A'}</p>
+          </div>
+          <div class="info-box">
+            <div class="section-title">Shipping Address</div>
+            <p><strong>${shipping.fullName || order.user?.fullName || 'N/A'}</strong></p>
+            <p>${shipping.addressLine1 || ''} ${shipping.addressLine2 || ''}</p>
+            <p>${shipping.city || ''}, ${shipping.state || ''} - ${shipping.pincode || ''}</p>
+            <p>${shipping.mobile ? 'Phone: ' + shipping.mobile : ''}</p>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Item Description</th>
+              <th class="text-right">Qty</th>
+              <th class="text-right">Unit Price</th>
+              <th class="text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${order.items?.map(item => `
+              <tr>
+                <td>
+                  <div style="font-weight: 500; color: #111827;">${item.name}</div>
+                  ${item.offerPrice < item.price ? `<div style="font-size: 9px; color: #10b981;">Includes discount on MRP ₹${item.price}</div>` : ''}
+                </td>
+                <td class="text-right">${item.quantity} ${item.unit}</td>
+                <td class="text-right">₹${item.offerPrice}</td>
+                <td class="text-right font-medium">₹${item.lineTotal || (item.offerPrice * item.quantity)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        <div class="grid">
+          <div class="info-box">
+            <div class="section-title">Payment Information</div>
+            <p><strong>Method:</strong> ${order.paymentMethod?.toUpperCase()}</p>
+            <p><strong>Status:</strong> 
+              <span class="badge ${order.paymentStatus === 'paid' ? 'badge-paid' : 'badge-pending'}">
+                ${order.paymentStatus?.toUpperCase()}
+              </span>
+            </p>
+          </div>
+          
+          <div class="summary">
+            <div class="summary-row">
+              <span>Subtotal</span>
+              <span>₹${order.subtotal}</span>
+            </div>
+            <div class="summary-row" style="color: #10b981;">
+              <span>Discount</span>
+              <span>-₹${order.totalDiscount}</span>
+            </div>
+            <div class="summary-row total">
+              <span>Grand Total</span>
+              <span>₹${order.grandTotal}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <p>Thank you for shopping with QuickPoint! • Fast & Reliable Delivery</p>
+        </div>
+      </div>
+    `;
+
     printWindow.document.write(`
       <html>
         <head>
           <title>Order Invoice - ${order._id}</title>
           <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
-            body { font-family: 'Inter', sans-serif; padding: 40px 20px; background-color: #f9fafb; color: #111827; }
-            .invoice { max-width: 850px; margin: 0 auto; background: white; padding: 40px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border-radius: 8px; }
-            .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; border-bottom: 2px solid #f3f4f6; padding-bottom: 20px; }
-            .header-left img { max-height: 60px; margin-bottom: 10px; }
-            .header-left h1 { margin: 0; font-size: 24px; color: #4F46E5; letter-spacing: -0.5px; }
-            .header-right { text-align: right; }
-            .header-right h2 { margin: 0 0 5px 0; font-size: 28px; color: #374151; }
-            .header-right p { margin: 2px 0; color: #6B7280; font-size: 14px; }
-            .section-title { font-size: 16px; font-weight: 600; color: #374151; margin-bottom: 15px; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; }
-            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 30px; }
-            .info-box p { margin: 4px 0; font-size: 14px; line-height: 1.5; color: #4b5563; }
-            .info-box strong { color: #111827; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-            th { background-color: #f9fafb; text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
-            td { padding: 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
-            .text-right { text-align: right; }
-            .summary { width: 350px; margin-left: auto; }
-            .summary-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; }
-            .summary-row.total { font-size: 18px; font-weight: 700; border-top: 2px solid #e5e7eb; padding-top: 12px; margin-top: 10px; color: #111827; }
-            .badge { display: inline-block; padding: 4px 8px; border-radius: 9999px; font-size: 12px; font-weight: 500; }
-            .badge-paid { background-color: #d1fae5; color: #065f46; }
-            .badge-pending { background-color: #fef3c7; color: #92400e; }
-            .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 20px; }
-            .no-print-btns { display: flex; justify-content: center; gap: 15px; margin-top: 30px; }
-            .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s; }
+            body {
+              font-family: 'Inter', sans-serif;
+              margin: 0;
+              padding: 10px;
+              background-color: #f9fafb;
+              color: #111827;
+              box-sizing: border-box;
+            }
+            .print-container {
+              max-width: 800px;
+              margin: 0 auto;
+              display: flex;
+              flex-direction: column;
+              gap: 15px;
+            }
+            .invoice-container {
+              background: white;
+              padding: 20px 25px;
+              border: 1px solid #e5e7eb;
+              border-radius: 8px;
+              position: relative;
+              box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            }
+            .copy-label {
+              position: absolute;
+              top: 15px;
+              right: 25px;
+              font-size: 11px;
+              font-weight: 700;
+              letter-spacing: 1px;
+              color: #6B7280;
+              border: 1px solid #e5e7eb;
+              padding: 2px 6px;
+              border-radius: 4px;
+              background-color: #f9fafb;
+            }
+            .header {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              margin-bottom: 12px;
+              border-bottom: 2px solid #f3f4f6;
+              padding-bottom: 8px;
+            }
+            .header-right {
+              text-align: right;
+            }
+            .header-right h2 {
+              margin: 0 0 3px 0;
+              font-size: 20px;
+              color: #374151;
+            }
+            .header-right p {
+              margin: 1px 0;
+              color: #6B7280;
+              font-size: 11px;
+            }
+            .section-title {
+              font-size: 12px;
+              font-weight: 600;
+              color: #374151;
+              margin-bottom: 6px;
+              border-bottom: 1px solid #e5e7eb;
+              padding-bottom: 3px;
+            }
+            .grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 20px;
+              margin-bottom: 12px;
+            }
+            .info-box p {
+              margin: 3px 0;
+              font-size: 11px;
+              line-height: 1.4;
+              color: #4b5563;
+            }
+            .info-box strong {
+              color: #111827;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 12px;
+            }
+            th {
+              background-color: #f9fafb;
+              text-align: left;
+              padding: 6px 8px;
+              font-size: 10px;
+              text-transform: uppercase;
+              color: #6b7280;
+              border-bottom: 1px solid #e5e7eb;
+            }
+            td {
+              padding: 6px 8px;
+              border-bottom: 1px solid #e5e7eb;
+              font-size: 11px;
+            }
+            .text-right {
+              text-align: right;
+            }
+            .summary {
+              width: 250px;
+              margin-left: auto;
+            }
+            .summary-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 4px 0;
+              font-size: 11px;
+            }
+            .summary-row.total {
+              font-size: 14px;
+              font-weight: 700;
+              border-top: 2px solid #e5e7eb;
+              padding-top: 6px;
+              margin-top: 4px;
+              color: #111827;
+            }
+            .badge {
+              display: inline-block;
+              padding: 2px 6px;
+              border-radius: 9999px;
+              font-size: 10px;
+              font-weight: 500;
+            }
+            .badge-paid {
+              background-color: #d1fae5;
+              color: #065f46;
+            }
+            .badge-pending {
+              background-color: #fef3c7;
+              color: #92400e;
+            }
+            .footer {
+              margin-top: 10px;
+              text-align: center;
+              font-size: 10px;
+              color: #9ca3af;
+              border-top: 1px solid #e5e7eb;
+              padding-top: 8px;
+            }
+            .page-divider {
+              display: none;
+              text-align: center;
+              color: #9CA3AF;
+              font-size: 11px;
+              font-style: italic;
+              user-select: none;
+            }
+            .btn {
+              padding: 8px 16px;
+              border: none;
+              border-radius: 6px;
+              cursor: pointer;
+              font-weight: 600;
+              font-size: 13px;
+              transition: all 0.2s;
+            }
             .btn-primary { background-color: #4F46E5; color: white; }
             .btn-primary:hover { background-color: #4338ca; }
             .btn-secondary { background-color: #e5e7eb; color: #374151; }
             .btn-secondary:hover { background-color: #d1d5db; }
+            
             @media print {
-              body { background-color: white; padding: 0; }
-              .invoice { box-shadow: none; padding: 0; max-width: 100%; }
-              .no-print-btns { display: none; }
+              body {
+                background-color: white;
+                padding: 0;
+                margin: 0;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              .no-print-btns {
+                display: none !important;
+              }
+              .invoice-container {
+                box-shadow: none;
+                border: 1px dashed #9ca3af;
+                height: 135mm;
+                box-sizing: border-box;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+              }
+              .page-divider {
+                display: flex !important;
+                height: 8mm;
+                align-items: center;
+                justify-content: center;
+              }
+              .print-container {
+                height: 278mm;
+                justify-content: space-between;
+                gap: 0;
+              }
             }
           </style>
         </head>
         <body>
-          <div class="invoice">
-            <div class="header">
-              <div class="header-left">
-                <h1 style="display:flex; align-items:center; gap:8px;">
-                  <span style="background:#4F46E5; color:white; padding:4px 8px; border-radius:4px;">QP</span>
-                  QuickPoint
-                </h1>
-                <p style="margin-top:5px; color:#6b7280; font-size:14px;">Fast & Reliable Delivery</p>
-                ${order.store ? `<p style="margin-top:2px; font-size:13px; font-weight:600; color:#374151;">Store: ${order.store.storeName}</p>` : ''}
-              </div>
-              <div class="header-right">
-                <h2>INVOICE</h2>
-                <p><strong>Order ID:</strong> ${order._id}</p>
-                <p><strong>Date:</strong> ${order.createdAtIST || new Date().toLocaleString()}</p>
-                <p><strong>Status:</strong> ${order.status.toUpperCase()}</p>
-              </div>
+          <div class="print-container">
+            ${getInvoiceHTML('CUSTOMER COPY')}
+            <div class="page-divider">
+              <span>✂------------------- Cut here (2 copies on A4) -------------------✂</span>
             </div>
-
-            <div class="grid">
-              <div class="info-box">
-                <div class="section-title">Customer Information</div>
-                <p><strong>${order.user?.fullName || 'N/A'}</strong></p>
-                <p>${order.user?.mobile || 'N/A'}</p>
-                <p>${order.user?.email || 'N/A'}</p>
-              </div>
-              <div class="info-box">
-                <div class="section-title">Shipping Address</div>
-                <p><strong>${shipping.fullName || order.user?.fullName || 'N/A'}</strong></p>
-                <p>${shipping.addressLine1 || ''} ${shipping.addressLine2 || ''}</p>
-                <p>${shipping.city || ''}, ${shipping.state || ''} - ${shipping.pincode || ''}</p>
-                <p>${shipping.mobile ? 'Phone: ' + shipping.mobile : ''}</p>
-              </div>
-            </div>
-
-            <table>
-              <thead>
-                <tr>
-                  <th>Item Description</th>
-                  <th class="text-right">Qty</th>
-                  <th class="text-right">Unit Price</th>
-                  <th class="text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${order.items?.map(item => `
-                  <tr>
-                    <td>
-                      <div style="font-weight: 500; color: #111827;">${item.name}</div>
-                      ${item.offerPrice < item.price ? `<div style="font-size: 12px; color: #10b981;">Includes discount on MRP ₹${item.price}</div>` : ''}
-                    </td>
-                    <td class="text-right">${item.quantity} ${item.unit}</td>
-                    <td class="text-right">₹${item.offerPrice}</td>
-                    <td class="text-right font-medium">₹${item.lineTotal || (item.offerPrice * item.quantity)}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-
-            <div class="grid">
-              <div class="info-box">
-                <div class="section-title">Payment Information</div>
-                <p><strong>Method:</strong> ${order.paymentMethod?.toUpperCase()}</p>
-                <p><strong>Status:</strong> 
-                  <span class="badge ${order.paymentStatus === 'paid' ? 'badge-paid' : 'badge-pending'}">
-                    ${order.paymentStatus?.toUpperCase()}
-                  </span>
-                </p>
-              </div>
-              
-              <div class="summary">
-                <div class="summary-row">
-                  <span>Subtotal</span>
-                  <span>₹${order.subtotal}</span>
-                </div>
-                <div class="summary-row" style="color: #10b981;">
-                  <span>Discount</span>
-                  <span>-₹${order.totalDiscount}</span>
-                </div>
-                <div class="summary-row total">
-                  <span>Grand Total</span>
-                  <span>₹${order.grandTotal}</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="footer">
-              <p>Thank you for shopping with QuickPoint!</p>
-              <p>If you have any questions about this invoice, please contact support.</p>
-            </div>
-
-            <div class="no-print-btns">
-              <button class="btn btn-secondary" onclick="window.close()">Close</button>
-              <button class="btn btn-primary" onclick="window.print()">Print Invoice</button>
-            </div>
+            ${getInvoiceHTML('MERCHANT COPY')}
+          </div>
+          <div class="no-print-btns" style="display: flex; justify-content: center; gap: 15px; margin-top: 30px;">
+            <button class="btn btn-secondary" onclick="window.close()">Close</button>
+            <button class="btn btn-primary" onclick="window.print()">Print Invoice</button>
           </div>
         </body>
       </html>
@@ -1696,6 +1927,24 @@ export default function Orders() {
                           disabled={actionLoading}
                         >
                           <FaEye size={14} />
+                        </button>
+                        <button
+                          onClick={() => openQuickStatusModal(order)}
+                          className="p-2 rounded-lg hover:opacity-80 transition-colors"
+                          style={{ backgroundColor: '#10B98120', color: '#10B981' }}
+                          title="Quick Status Change"
+                          disabled={actionLoading}
+                        >
+                          <FaClipboardCheck size={14} />
+                        </button>
+                        <button
+                          onClick={() => openQuickAssignModal(order)}
+                          className="p-2 rounded-lg hover:opacity-80 transition-colors"
+                          style={{ backgroundColor: '#6366F120', color: '#6366F1' }}
+                          title="Quick Driver Assign"
+                          disabled={actionLoading}
+                        >
+                          <FaTruck size={14} />
                         </button>
                         <button
                           onClick={() => printOrder(order)}
